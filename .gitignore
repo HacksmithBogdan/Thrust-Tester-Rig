@@ -1,0 +1,15 @@
+# Operating-system metadata
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Local Arduino build output
+/build/
+/.pio/
+
+# Temporary editor files
+*.swp
+*.swo
+
+# Runtime output (archive test runs deliberately outside the firmware tree)
+datalog.txt
