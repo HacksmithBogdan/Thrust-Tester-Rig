@@ -13,3 +13,14 @@ Desktop.ini
 
 # Runtime output (archive test runs deliberately outside the firmware tree)
 datalog.txt
+
+# ESP32 build and local tooling output
+ESP32_USB_Gateway/.pio/
+ESP32_USB_Gateway/build/
+ESP32_USB_Gateway/managed_components/
+ESP32_USB_Gateway/sdkconfig
+ESP32_USB_Gateway/sdkconfig.old
+ESP32_USB_Gateway/sdkconfig.esp32-s3-zero
+ESP32_USB_Gateway/sdkconfig.esp32-s3-zero.old
+ESP32_USB_Gateway/artifacts/
+**/__pycache__/

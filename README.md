@@ -6,6 +6,8 @@ This repository preserves the original Arduino sketches, sensor test programs, S
 
 **Project status:** legacy project being brought back into service. The initial import preserves the firmware as found. The documentation below comes from a source review, not a new hardware test or a verified firmware build. Board models, wiring, calibration, and operating limits still need to be confirmed on the physical rig.
 
+**USB/Wi-Fi restoration interface:** [`ESP32_USB_Gateway/`](ESP32_USB_Gateway/) adds an ESP32-S3 Zero USB host, a local phone dashboard, and ESP32-side recording without changing the archived Arduino firmware. See its [setup guide](ESP32_USB_Gateway/README.md) and [Nano protocol contract](ESP32_USB_Gateway/PROTOCOL.md). The existing rig has since been reported to power up and produce debug serial readings; the ESP32 integration still needs a physical systems test.
+
 ## Contents
 
 - [What the rig does](#what-the-rig-does)
