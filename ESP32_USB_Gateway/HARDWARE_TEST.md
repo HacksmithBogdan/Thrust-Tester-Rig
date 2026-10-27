@@ -28,6 +28,23 @@ The Nano was not connected for the initial checks above. The matching [Nano firm
 
 This validates the tested converter/cable data path and live USB stream. Completed real recording/download, reference calibration, SD backup, sustained operation and power-interruption behavior remain to be checked. Temporary test Wi-Fi profiles and device captures are local only.
 
+## Fast firmware 1.1.0 on 2026-10-27
+
+- The owner opened the SparkFun HX711 RATE jumper. The [Nano fast test](../Nano_USB_Controller/HARDWARE_TEST.md#2026-10-27-rate-jumper-opened-and-fast-firmware) then received 1,976 consecutive fresh samples over 20 seconds (98.72 Hz, maximum interval 18 ms), with SD `RIG00002.CSV` active and no malformed frames or missing sequences.
+- The compact S1 frame averaged 48.18 bytes, using approximately 4.8 kB/s at that measured rate. The existing 115200 baud setting remains sufficient. Control messages remain JSON v1.
+- Native production-parser tests passed for S1 values/missing channels, malformed/nonfinite/truncated/extra fields, sequence gaps/reset/wrap, and a 48-sample pulse fragmented into arbitrary USB chunks. Existing legacy/JSON/ACK/framing/history checks and all six browser-model tests passed. CSV round-trip now retains Nano sequence numbers.
+- Gateway build: **1,057,424-byte binary**, **1,057,017 / 2,097,152 application bytes**, **35,640 / 327,680 static RAM bytes**. It includes 100 ms visible-page poll delay, one-/five-second graph windows, measured sample rate and gap/SD diagnostics, 60,000 browser samples, and up to 256 samples per API response.
+- Identified the same Zero on COM5 by MAC **3c:0f:02:e4:7f:08** and ESP32-S3 revision 0.2. Saved its complete 4 MiB flash before updating. Esptool verified all written hashes; the partition layout, NVS and SPIFFS recordings were retained.
+- S3 native USB remained in download mode after software reset. Requested normal reconnection with BOOT released and restored host power for the paired recording check.
+- After normal reconnection, API firmware **1.1.0**, persisted **115200** baud, protocol-v1 capabilities and fresh S1 data were confirmed. The owner also confirmed live loads on the updated phone dashboard.
+- The computer had trouble obtaining a DHCP address while the phone was connected, and the owner reported temporary gateway-unavailable messages with concurrent viewers. After the phone disconnected, the computer obtained `192.168.4.2` and could use the gateway normally. The exact cause of the multi-client issue is unconfirmed; use one viewer at a time pending further investigation.
+- With the computer as the sole Wi-Fi client, `tools/hardware_check.py` created **High-rate USB bench check**, stopped it, and downloaded its CSV and JSON metadata. The final CSV contained **1,256 samples**; metadata sample count matched. Acquisition cadence was **98.83 Hz** with a **19 ms** maximum interval. All Nano sequences were consecutive, with **zero USB queue drops and zero Nano sequence gaps**.
+- The malformed-line counter was 1 before and after the bench recording: there were no new malformed frames during capture. API streaming continued while recording, and SPIFFS used 89,607 bytes afterward.
+- Run metadata identified active SD backup **RIG00004.CSV** and the owner's newly applied factor **19298.07812**, poles **6**. `persisted:false` showed that this new calibration still needed an explicit EEPROM save. No calibration command or EEPROM write was performed by the bench script; it only requested configuration.
+- The real recording remains in the gateway library. CSV/metadata/test captures remain local under ignored `artifacts/high-rate-hardware-check/`. The temporary computer Wi-Fi profile was removed after testing so the owner could resume phone use.
+
+The fast Nano write path and paired recording/download are verified for this bench test. Independent SD removal/readback, reference sensor accuracy, persisted calibration save/reload, multiple simultaneous viewers and power-interruption behavior still require checks. These short rate measurements are observed bench results, not worst-case latency guarantees.
+
 ## Display-board cleanup
 
 The P4 installer failed during its initial read-only verification before reaching the firmware write or OTA-selection steps. Its factory launcher was not replaced. It was restarted into its existing firmware; its complete 32 MiB backup remains local. The display prototype sources were saved on local branch `codex/archive-display-prototypes`; they are outside the active headless firmware.

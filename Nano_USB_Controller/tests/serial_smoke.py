@@ -18,6 +18,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", required=True)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--seconds", type=float, default=10)
+    parser.add_argument("--min-rate", type=float, default=65)
+    parser.add_argument("--max-gap-ms", type=int, default=100)
     args = parser.parse_args()
     rows, malformed = [], []
     port = serial.Serial(port=None, baudrate=115200, timeout=0.1)
@@ -25,6 +28,9 @@ def main():
     port.rts = False
     port.port = args.port
     port.open()
+    # USB can attach halfway through a line. Synchronize at LF before validating
+    # frames, exactly as the gateway stream decoder does after opening a device.
+    initial_fragment = port.readline().decode("ascii", errors="replace").strip()
 
     def receive(seconds):
         end = time.monotonic() + seconds
@@ -33,7 +39,15 @@ def main():
             if not line:
                 continue
             try:
-                row = json.loads(line)
+                if line.startswith(b"S1,"):
+                    cells = line.decode("ascii").split(",")
+                    assert len(cells) == 8
+                    row = {"type": "sample", "protocol": 1, "seq": int(cells[1]), "time_ms": int(cells[2])}
+                    for key, value in zip(("thrust", "throttle", "voltage", "current", "rpm"), cells[3:]):
+                        row[key] = float(value) if value else None
+                    row["wire_bytes"] = len(line) + 2
+                else:
+                    row = json.loads(line)
                 assert row["protocol"] == 1
                 rows.append(row)
             except (ValueError, KeyError, AssertionError):
@@ -48,6 +62,7 @@ def main():
         matches = [r for r in rows if r.get("type") == "ack" and r.get("request_id") == request_id]
         return matches[-1] if matches else None
 
+    report = None
     try:
         receive(4.5)  # Allow boot tare if this USB adapter resets the Nano.
         command(0, "hello")
@@ -68,23 +83,29 @@ def main():
         after = [r for r in rows if r.get("type") == "config"][-1]
         for key in ("calibration_factor", "poles", "shunt_ohms", "divider_ratio", "persisted"):
             assert before[key] == after[key], f"Invalid request changed {key}"
-        receive(5)
-        samples = [r for r in rows if r.get("type") == "sample"]
+        sustained_start = len(rows)
+        receive(args.seconds)
+        samples = [r for r in rows[sustained_start:] if r.get("type") == "sample"]
         assert len(samples) >= 50, f"Only {len(samples)} samples received"
         intervals = []
         for previous, current in zip(samples, samples[1:]):
             assert current["seq"] == previous["seq"] + 1, "Sequence discontinuity/reset"
             delta = (current["time_ms"] - previous["time_ms"]) & 0xffffffff
-            assert 90 <= delta <= 500, f"Unexpected sample interval: {delta} ms"
+            assert 1 <= delta <= args.max_gap_ms, f"Unexpected sample interval: {delta} ms"
             intervals.append(delta)
         for row in samples:
             assert math.isfinite(row["thrust"])
             for key in ("throttle", "voltage", "current", "rpm"):
                 assert row[key] is None or math.isfinite(row[key])
         assert not malformed, f"Malformed lines: {malformed[:3]}"
+        measured_rate = 1000 / statistics.mean(intervals)
+        assert measured_rate >= args.min_rate, f"Measured rate {measured_rate:.2f} Hz below {args.min_rate}"
         report = {"port": args.port, "baud": 115200, "passed": True,
                   "samples": len(samples), "mean_interval_ms": statistics.mean(intervals),
                   "max_interval_ms": max(intervals), "config": after,
+                  "measured_hz": measured_rate,
+                  "mean_wire_bytes": statistics.mean(r.get("wire_bytes", 0) for r in samples),
+                  "initial_fragment_discarded": bool(initial_fragment),
                   "latest_sample": samples[-1], "malformed_lines": len(malformed),
                   "checks": ["hello/config", "invalid calibration/config rejection",
                              "duplicate ACK", "unknown command", "oversized-line recovery",
@@ -95,6 +116,9 @@ def main():
             args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
         print(json.dumps({k: v for k, v in report.items() if k != "frames"}, indent=2))
     finally:
+        if args.output and report is None:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(json.dumps({"passed": False, "frames": rows, "malformed": malformed}, indent=2) + "\n", encoding="utf-8")
         port.close()
 
 

@@ -22,7 +22,8 @@ inline Config import_legacy(uint8_t low,uint8_t high,uint8_t poles) {
     if(poles>=1&&poles<=220)result.poles=poles;
     return result;
 }
-inline uint16_t ads_config(uint8_t channel) {return 0x8183|(static_cast<uint16_t>(4+channel)<<12);}
+// Single-shot, +/-6.144 V, 250 SPS; channels are converted sequentially.
+inline uint16_t ads_config(uint8_t channel) {return 0x81a3|(static_cast<uint16_t>(4+channel)<<12);}
 inline uint16_t crc16(const uint8_t* bytes,size_t length) {
     uint16_t crc=0xffff;
     while(length--){crc^=*bytes++;for(uint8_t bit=0;bit<8;++bit)crc=(crc>>1)^((crc&1)?0xa001:0);}

@@ -17,6 +17,8 @@ constexpr size_t MAX_LINE = 768;
 constexpr uint32_t STALE_MS = 3000;
 struct Sample {
     uint64_t seq = 0;
+    uint32_t nano_seq = 0;
+    bool has_nano_seq = false;
     int64_t gateway_ms = 0;
     double time_s = NAN, thrust = NAN, throttle = NAN, voltage = NAN, current = NAN, rpm = NAN;
     double power() const { return voltage * current; }
@@ -35,7 +37,7 @@ struct State {
     std::string mode = "waiting", usb_status = "Waiting for a USB serial device", last_error;
     uint16_t vid = 0, pid = 0;
     bool usb_connected = false, storage_ready = false;
-    uint64_t sequence = 0, console_sequence = 0, malformed = 0, dropped = 0;
+    uint64_t sequence = 0, console_sequence = 0, malformed = 0, dropped = 0, nano_gaps = 0;
     int64_t connected_ms = 0;
     std::deque<Sample> history;
     std::deque<ConsoleLine> console;
@@ -47,7 +49,7 @@ struct State {
     FILE* recording_file = nullptr;
     std::string recording_id, recording_meta;
     uint64_t recorded_samples = 0;
-    int64_t recording_started_ms = 0;
+    int64_t recording_started_ms = 0, recording_flushed_ms = 0;
     size_t storage_total = 0, storage_used = 0;
 };
 extern State state;

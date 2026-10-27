@@ -11,12 +11,13 @@ test('imports original logs with repeated headers and restart timestamps', () =>
   assert.ok(result.samples[1].gateway_ms > result.samples[0].gateway_ms);
 });
 test('round-trips gateway CSV while preserving missing sensor values', () => {
-  const sample = { gateway_ms: 1500, time_s: 1.2, thrust: -2, throttle: null, voltage: 48.25, current: 100, rpm: null, power: 4825 };
+  const sample = { gateway_ms: 1500, time_s: 1.2, thrust: -2, throttle: null, voltage: 48.25, current: 100, rpm: null, power: 4825, nano_seq: 12345 };
   const result = model.parseCsv(model.csv([sample]));
   assert.equal(result.samples[0].thrust, -2);
   assert.equal(result.samples[0].rpm, null);
   assert.equal(result.samples[0].throttle, null);
   assert.equal(result.samples[0].gateway_ms, 1500);
+  assert.equal(result.samples[0].nano_seq, 12345);
 });
 test('rejects invalid and unrecognized rows rather than fabricating zero readings', () => {
   const result = model.parseCsv('Time,Thrust,Throttle,Vbat,Current,RPM\n0,nan,0,0,0,0\nfoo\n1,2,,48,,\n');

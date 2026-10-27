@@ -45,6 +45,10 @@ Check the [Waveshare schematic](https://files.waveshare.com/wiki/ESP32-S3-Zero/E
 
 **With the replacement Nano firmware:** monitoring, recording, calibration and configuration use protocol v1 at **115200 baud**. Flash only the measurement Nano using [Nano_USB_Controller](../Nano_USB_Controller/README.md), then change the gateway's serial-speed setting to match. That firmware also writes continuous parallel backups to the Nano's existing SD module when available.
 
+The fast Nano firmware requires **gateway 1.1.0+**. Measurements use compact S1 lines, while commands/configuration remain JSON v1. Each frame contains a fresh load-cell conversion. The dashboard shows measured samples/second and requests updates with a 100 ms delay between completed polls (up to roughly ten refreshes/second, depending on the phone/network). Recording retains every received frame independently of browser updates. One- and five-second plot windows and millisecond tooltip timestamps help inspect short thrust pulses. See the [fast acquisition notes](../Nano_USB_Controller/README.md#fast-acquisition).
+
+**Current hardware limitation:** use one phone/computer viewer at a time. Simultaneous viewers caused intermittent connection trouble in the paired test; the cause is not yet confirmed. The single-client test successfully recorded/downloaded 1,256 samples at 98.83 Hz with no sequence gaps. See the [hardware record](HARDWARE_TEST.md).
+
 **With an archived Nano sketch:** monitoring/recording require its full debug stream. Enable `DEBUG` in the chosen sketch. Version 4 uses 9600 baud; the Schubler variant uses 115200. Calibration controls require the replacement firmware. The complete wire contract is in [PROTOCOL.md](PROTOCOL.md). The ESP32 does not update the Nano automatically or expose files already on its SD card.
 
 The gateway does not control propulsion. Its thrust unit setting labels measurements; it does not perform a kgf/newton/pound-force conversion.
@@ -97,7 +101,9 @@ Each run contains a CSV and metadata JSON. The CSV contains all received measure
 
 The Zero has no microSD slot. Its flash library and phone downloads are the primary recording workflow. The replacement Nano's SD logger is independent: one new six-column CSV per Nano boot, including idle samples. Match `nano_time_s` in the gateway CSV to `Time` in the SD CSV; the Nano's `sd_file` is retained in the run's configuration metadata when available. Missing Nano SD does not prevent ESP32 recording. Retrieve Nano SD files by removing the card; no USB file-copy or backup synchronization is implemented.
 
-The gateway retains 600 recent samples in RAM for reconnecting browsers. Each browser retains up to 6000 live samples. Wi-Fi loss does not stop gateway recording. USB loss leaves a timestamp gap, and logging resumes when samples return. A power interruption does not automatically restart a recording; interrupted runs are identified at boot. CSV data is flushed every ten samples, so the latest unflushed data can be lost on power failure. Metadata sample count may be incomplete after interruption; the CSV is the primary recovered measurement record.
+The gateway retains 600 recent samples in RAM for reconnecting browsers (about six seconds at 100 Hz). Each browser retains up to 60,000 live samples (about ten minutes at 100 Hz), and can fetch 256 samples per request. Wi-Fi loss does not stop gateway recording. USB loss leaves a timestamp gap, and logging resumes when samples return. A power interruption does not automatically restart a recording; interrupted runs are identified at boot. CSV data is flushed approximately once per second and on explicit stop, so up to about one second of buffered data can be lost on power failure. Metadata sample count may be incomplete after interruption; the CSV is the primary recovered measurement record.
+
+The downloaded CSV includes Nano sequence numbers as a ninth column, alongside the separate acquisition and receipt timestamps. The connection page reports recent maximum acquisition interval, missing Nano sequences and the SD backup filename. Faster sampling uses recording space faster; these flash recordings are for short tests, so watch the storage meter and export completed runs.
 
 The filesystem is formatted automatically only on its first initialization. A later mount failure is reported without silently erasing recordings. CSV transfer, SPI flash endurance, sustained recording rate, converter resets and power behavior still need evaluation on the actual hardware.
 
@@ -123,6 +129,12 @@ Native tests compile and exercise the production C++ parser and stream decoder, 
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tests\run-telemetry-tests.ps1 -Python python
+```
+
+With a physically connected, idle fast-rate rig, this optional check creates a clearly named real bench recording, stops it, and verifies its downloaded CSV, metadata, rate and sequence continuity. It does not alter calibration and refuses to interrupt an existing run:
+
+```powershell
+python .\tools\hardware_check.py --seconds 15 --output .\artifacts\hardware-check
 ```
 
 Before a physical test: confirm the actual ESP board and Nano converter, verify the USB power arrangement, flash both controllers using their separate guides, set the gateway to 115200, check incoming measurements, record a short bench run, disconnect/reconnect the phone, stop the run, and download its CSV and metadata. Exercise calibration against known inputs with propulsion power disconnected. Direct Nano USB tests and end-to-end USB-host tests are recorded separately; see the [Nano test record](../Nano_USB_Controller/HARDWARE_TEST.md).

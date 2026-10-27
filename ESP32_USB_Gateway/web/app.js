@@ -49,7 +49,8 @@
     const pill = $('#connectionPill');
     pill.classList.toggle('live', status.live);
     pill.innerHTML = `<i></i>${status.live ? 'USB streaming' : status.usb_connected ? 'USB · waiting for data' : 'USB disconnected'}`;
-    $('#streamStatus').innerHTML = `<i class="signal-dot" style="background:${status.live ? 'var(--green)' : '#697583'}"></i>${status.live ? (status.mode === 'protocol_v1' ? 'Live · protocol v1' : 'Live · legacy stream') : 'Waiting for measurements'}`;
+    const rate = M.finite(status.sample_rate_hz) ? ` · ${status.sample_rate_hz.toFixed(1)} samples/s` : '';
+    $('#streamStatus').innerHTML = `<i class="signal-dot" style="background:${status.live ? 'var(--green)' : '#697583'}"></i>${status.live ? (status.mode === 'protocol_v1' ? 'Live · protocol v1' : 'Live · legacy stream') + rate : 'Waiting for measurements'}`;
     const settings = status.settings;
     $('#networkName').textContent = settings.ssid;
     $('#networkAddress').textContent = settings.ip;
@@ -83,6 +84,10 @@
     $('#diagMode').textContent = status.mode.replaceAll('_', ' ');
     $('#diagAge').textContent = status.sample_age_ms < 0 ? 'No sample received' : `${(status.sample_age_ms / 1000).toFixed(1)} s ago`;
     $('#diagErrors').textContent = `${status.malformed} / ${status.dropped}`;
+    $('#diagRate').textContent = M.finite(status.sample_rate_hz) ? `${status.sample_rate_hz.toFixed(1)} samples/s` : '—';
+    $('#diagGap').textContent = M.finite(status.max_sample_gap_ms) ? `${status.max_sample_gap_ms.toFixed(0)} ms` : '—';
+    $('#diagNanoGaps').textContent = status.nano_sequence_gaps ?? 0;
+    $('#diagSd').textContent = status.nano_config?.sd_ok ? status.nano_config.sd_file : 'Unavailable';
     $('#diagUptime').textContent = M.duration(status.uptime_ms / 1000);
     $('#diagStorage').textContent = status.storage.ready ? `${M.bytes(status.storage.used)} used` : 'Unavailable';
     if (!state.initialized) {
@@ -92,7 +97,7 @@
     const notice = $('#connectionNotice');
     let noticeText = '';
     if (!status.usb_connected) noticeText = status.usb_status + '. Open Device & connection for hookup checks.';
-    else if (!status.live) noticeText = 'USB is connected, but no fresh measurements are arriving. Check DEBUG mode and the selected Nano baud rate.';
+    else if (!status.live) noticeText = 'USB is connected, but no fresh measurements are arriving. Check Nano serial speed in Device & connection (115200 for the updated Nano), and check the load-cell connection.';
     else if (status.mode !== 'protocol_v1') noticeText = 'Legacy Nano stream connected. Monitoring and gateway recording are ready. Update the Nano firmware to enable calibration commands.';
     notice.hidden = !noticeText;
     notice.textContent = noticeText;
@@ -122,13 +127,15 @@
   }
   async function poll() {
     try {
-      const status = await api('/api/status');
-      if (status.uptime_ms < state.gatewayUptime) { state.after = 0; state.consoleAfter = 0; state.samples = []; state.consoleLines = []; state.configText = ''; }
+      let [status, data] = await Promise.all([api('/api/status'), api(`/api/samples?after=${state.after}`)]);
+      if (status.uptime_ms < state.gatewayUptime) {
+        state.after = 0; state.consoleAfter = 0; state.samples = []; state.consoleLines = []; state.configText = '';
+        data = await api('/api/samples?after=0');
+      }
       state.gatewayUptime = status.uptime_ms;
-      const data = await api(`/api/samples?after=${state.after}`);
       state.after = data.next_seq;
       state.samples.push(...data.samples);
-      if (state.samples.length > 6000) state.samples.splice(0, state.samples.length - 6000);
+      if (state.samples.length > 60000) state.samples.splice(0, state.samples.length - 60000);
       if (data.gap) toast('Some live history was missed. Gateway recordings are independent of the browser.');
       renderStatus(status);
       if (state.page === 'live') drawChart();
@@ -148,7 +155,9 @@
       $('#recordButton').disabled = true;
       document.querySelectorAll('[data-capability]').forEach(button => { button.disabled = true; });
     }
-    setTimeout(poll, 500);
+    // Acquisition/recording are independent. Fetch batches more often for a
+    // responsive display; never start overlapping polling loops.
+    setTimeout(poll, document.hidden ? 1000 : 100);
   }
   $('#recordButton').addEventListener('click', () => {
     if (state.status?.recording.active) {
@@ -305,14 +314,14 @@
     ctx.strokeStyle = config.color; ctx.lineWidth = 1.8; ctx.lineJoin = 'round'; ctx.stroke();
     const last = plotted.at(-1); ctx.fillStyle = config.color; ctx.beginPath(); ctx.arc(last.x, last.y, 3, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#6e7c90'; ctx.textAlign = 'center';
-    for (let i = 0; i <= 4; i++) { const seconds = span / 1000 * i / 4; ctx.fillText(seconds >= 60 ? `${Math.floor(seconds / 60)}m ${Math.floor(seconds % 60)}s` : `${seconds.toFixed(0)}s`, pad.left + (width - pad.left - pad.right) * i / 4, height - 9); }
+    for (let i = 0; i <= 4; i++) { const seconds = span / 1000 * i / 4; ctx.fillText(seconds >= 60 ? `${Math.floor(seconds / 60)}m ${Math.floor(seconds % 60)}s` : `${seconds.toFixed(span <= 5000 ? 2 : 0)}s`, pad.left + (width - pad.left - pad.right) * i / 4, height - 9); }
   }
   $('#chart').addEventListener('pointermove', event => {
     if (!plotted.length) return;
     const rect = event.currentTarget.getBoundingClientRect(), pointer = event.clientX - rect.left;
     const point = plotted.reduce((best, item) => Math.abs(item.x - pointer) < Math.abs(best.x - pointer) ? item : best);
     const config = M.metrics[state.metric], unit = state.metric === 'thrust' ? state.saved?.unit || state.status?.settings.unit : config.unit;
-    $('#chartTooltip').textContent = `${M.duration(point.sample.time_s)}\n${M.format(point.sample[state.metric], config.digits)} ${unit}`;
+    $('#chartTooltip').textContent = `${M.finite(point.sample.time_s) ? point.sample.time_s.toFixed(3) + ' s' : '—'}\n${M.format(point.sample[state.metric], config.digits)} ${unit}`;
     $('#chartTooltip').style.left = `${Math.min(Math.max(0, point.x + 8), rect.width - 135)}px`;
     $('#chartTooltip').style.top = `${Math.max(15, point.y - 55)}px`; $('#chartTooltip').hidden = false;
   });

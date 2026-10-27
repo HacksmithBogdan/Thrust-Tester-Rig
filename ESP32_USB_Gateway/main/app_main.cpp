@@ -162,11 +162,11 @@ bool start_recording_locked(const std::string& name, const std::string& note, do
     if (!write_json(run_path(id, ".json"), state.recording_meta)) { error = "Could not save run metadata."; return false; }
     state.recording_file = std::fopen(run_path(id, ".csv").c_str(), "wb");
     if (!state.recording_file) { std::remove(run_path(id, ".json").c_str()); error = "Could not create run file."; return false; }
-    const char* header = "gateway_time_s,nano_time_s,thrust,throttle_percent,voltage_V,current_A,rpm,power_W\n";
+    const char* header = "gateway_time_s,nano_time_s,thrust,throttle_percent,voltage_V,current_A,rpm,power_W,nano_sequence\n";
     if (std::fputs(header, state.recording_file) < 0) { stop_recording_locked("storage_error"); error = "Could not write CSV header."; return false; }
     std::fflush(state.recording_file);
     state.recorded_samples = 0;
-    state.recording_started_ms = now_ms();
+    state.recording_started_ms = state.recording_flushed_ms = now_ms();
     return true;
 }
 void stop_recording_locked(const char* reason) {
@@ -188,13 +188,14 @@ void stop_recording_locked(const char* reason) {
 void append_recording_locked(const Sample& sample) {
     if (!state.recording_file) return;
     auto cell = [](double value) { char text[40]; if (!std::isfinite(value)) return std::string(); std::snprintf(text, sizeof(text), "%.5f", value); return std::string(text); };
-    const std::string line = cell(sample.gateway_ms / 1000.0) + "," + cell(sample.time_s) + "," + cell(sample.thrust) + "," + cell(sample.throttle) + "," + cell(sample.voltage) + "," + cell(sample.current) + "," + cell(sample.rpm) + "," + cell(sample.power()) + "\n";
+    const std::string line = cell(sample.gateway_ms / 1000.0) + "," + cell(sample.time_s) + "," + cell(sample.thrust) + "," + cell(sample.throttle) + "," + cell(sample.voltage) + "," + cell(sample.current) + "," + cell(sample.rpm) + "," + cell(sample.power()) + "," + (sample.has_nano_seq ? std::to_string(sample.nano_seq) : std::string()) + "\n";
     if (std::fwrite(line.data(), 1, line.size(), state.recording_file) != line.size()) {
         state.last_error = "Recording stopped: storage write failed."; stop_recording_locked("storage_error"); return;
     }
     ++state.recorded_samples;
-    if (state.recorded_samples % 10 == 0) {
+    if (sample.gateway_ms - state.recording_flushed_ms >= 1000) {
         if (std::fflush(state.recording_file) != 0) { state.last_error = "Recording stopped: storage flush failed."; stop_recording_locked("storage_error"); return; }
+        state.recording_flushed_ms = sample.gateway_ms;
         refresh_storage_locked();
         if (state.storage_used > state.storage_total * 0.75) { state.last_error = "Recording stopped: storage is full. Download and delete runs."; stop_recording_locked("storage_full"); }
     }

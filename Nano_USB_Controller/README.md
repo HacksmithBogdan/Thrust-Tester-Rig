@@ -41,7 +41,24 @@ Pinned dependencies: PlatformIO AVR platform `5.1.0`, ArduinoJson `6.21.5`, Ardu
 
 D5/D6 receiver calibration inputs are ignored; a missing receiver cannot adjust settings. Throttle is `null` after 100 ms without a valid pulse. The optional telemetry board receives the original nine-byte packet; a missing board is nonfatal. Hall RPM uses the actual elapsed measurement interval and the configured transitions per revolution.
 
-ADS1115 single-ended conversions explicitly select ±6.144V gain and 128 SPS, using 187.5 µV/count. This is a conversion setting, not permission to exceed ADC supply/input limits. Unavailable ADC channels are `null`. No thrust samples are sent until startup tare succeeds; a stale HX711 stops samples. Sampling targets 10 Hz; SD/I2C delays can extend a cycle. Sensors still need reference calibration, including electrical offsets.
+ADS1115 single-ended conversions explicitly select ±6.144V gain and **250 SPS**, using 187.5 µV/count. The two channels are converted sequentially; this is not 250 complete voltage/current pairs per second. This is a conversion setting, not permission to exceed ADC supply/input limits. Unavailable ADC channels are `null`. Sensors still need reference calibration, including electrical offsets.
+
+## Fast acquisition
+
+The Nano emits **one sample per fresh HX711 conversion**, with no fixed 100 ms gate or measurement averaging. No thrust frames are sent until startup tare succeeds. A missing/stalled HX711 produces no new frames. ADC values are the latest available pair; RPM is calculated independently over approximately 100 ms using the actual elapsed interval. Optional FrSky forwarding remains approximately 10 Hz, keeping that traffic out of the thrust sampling rate.
+
+The SparkFun HX711's underside **RATE** trace jumper selects nominal 10 SPS when closed and 80 SPS when open. The photographed board's jumper was opened by the owner. Actual fresh-reading cadence in the subsequent USB/SD bench test was **98.7 samples/second**, with a maximum 18 ms interval during the 20-second steady capture. This is the observed rate of this board, not a guaranteed HX711 specification. A 0.6-second event would contain about 59 samples at that measured cadence. See the [SparkFun schematic](https://cdn.sparkfun.com/datasheets/Sensors/ForceFlex/SparkFun_HX711_Load_Cell_v11.pdf).
+
+Measurements use compact newline ASCII at **115200 baud**:
+
+```text
+S1,sequence,nano_time_ms,thrust,throttle,voltage,current,rpm
+S1,11734,119348,0.00019,,-0.00640,-1.95312,0.0
+```
+
+Empty optional channels mean unavailable; the thrust value and timestamp must be present. These frames averaged 48 bytes on the bench, leaving serial bandwidth for commands. Calibration, discovery, settings and acknowledgements remain JSON v1. Use **gateway firmware 1.1.0 or newer**; the original 1.0.0 gateway cannot decode S1. No baud change is required from the previous paired test.
+
+USB and SD share one numeric formatting pass to reduce Nano CPU time. `sample_hz` and `max_sample_gap_ms` in configuration report conversion cadence and the largest observed interval since startup, including command handling. SD writes and commands can introduce timing gaps; timestamps preserve actual intervals. No claim of hard real-time or noise-free acquisition is made. Preserve raw measurements and choose filtering after capture to avoid flattening a short pulse.
 
 ## Calibration and persistence
 
@@ -63,7 +80,7 @@ Commands use newline-delimited JSON, positive request IDs, and acknowledgements.
 Time,Thrust,Throttle,Vbat,Current,RPM
 ```
 
-`Time` is Nano uptime in seconds with millisecond precision, matching the gateway CSV's `nano_time_s`. Empty cells mean unavailable values. Configuration messages include `sd_ok` and `sd_file`; the gateway stores the configuration snapshot in run metadata so a phone run can be matched to its Nano backup. Nano files span all activity since boot; one Nano file can cover several phone runs. Both loggers flush every ten samples, so recent buffered data can be lost on power failure.
+`Time` is Nano uptime in seconds with millisecond precision, matching the gateway CSV's `nano_time_s`. Empty cells mean unavailable values. Configuration messages include `sd_ok` and `sd_file`; the gateway stores the configuration snapshot in run metadata so a phone run can be matched to its Nano backup. Nano files span all activity since boot; one Nano file can cover several phone runs. The updated loggers flush approximately once per second, and on explicit gateway stop, so up to about one second of buffered data can be lost on power failure. A filename collision is skipped to the next unused name; existing files are never opened for append as a new run.
 
 SD initialization runs only at Nano startup. After reseating/replacing a card, reset or power-cycle the measurement Nano with the load cell unloaded; cable reconnection alone may leave it powered by the rig and will not retry initialization. Removing an active card is not a supported logging workflow.
 
@@ -82,7 +99,7 @@ powershell -ExecutionPolicy Bypass -File .\tests\run-config-tests.ps1 -Python py
 Read-only serial protocol smoke test (requires `pyserial`; USB opening may reset the Nano and perform startup tare):
 
 ```powershell
-python .\tests\serial_smoke.py --port COM6 --output .\artifacts\serial-smoke.json
+python .\tests\serial_smoke.py --port COM6 --seconds 20 --output .\artifacts\serial-smoke.json
 ```
 
-The smoke test sends only discovery/read requests and deliberately invalid mutations; it does not save EEPROM or apply a calibration. Known-load, electrical and RPM accuracy, actual SD writes, power-loss recovery and sustained recording require physical checks.
+The smoke test sends only discovery/read requests and deliberately invalid mutations; it does not save EEPROM or apply a calibration. It checks S1/JSON framing, rate, maximum gap, sequence continuity and unchanged configuration. It discards an initial partial line when attaching to an existing stream. Default minimum rate is 65 Hz; use `--min-rate 5 --max-gap-ms 250` for a board still configured at 10 Hz. Known-load, electrical/RPM accuracy, independent SD file retrieval and power-loss recovery require physical checks.

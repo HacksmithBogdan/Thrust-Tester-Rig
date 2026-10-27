@@ -38,6 +38,7 @@ cJSON* sample_json(const Sample& sample) {
     auto* json = cJSON_CreateObject();
     cJSON_AddNumberToObject(json, "seq", static_cast<double>(sample.seq));
     cJSON_AddNumberToObject(json, "gateway_ms", static_cast<double>(sample.gateway_ms));
+    if (sample.has_nano_seq) cJSON_AddNumberToObject(json, "nano_seq", sample.nano_seq);
     numeric(json, "time_s", sample.time_s);
     numeric(json, "thrust", sample.thrust);
     numeric(json, "throttle", sample.throttle);
@@ -89,6 +90,31 @@ static bool parse_csv(const std::string& line, Sample& sample) {
     sample.voltage = values[3]; sample.current = values[4]; sample.rpm = values[5];
     return true;
 }
+static bool parse_compact(const std::string& line, Sample& sample) {
+    // S1,sequence,nano_time_ms,thrust,throttle,voltage,current,rpm
+    // Required fields are finite; only the final four channels may be empty.
+    double values[7];
+    const char* next = line.c_str() + 3;
+    for (int i = 0; i < 7; ++i) {
+        if (i >= 3 && (*next == ',' || *next == '\0')) values[i] = NAN;
+        else {
+            char* end = nullptr;
+            values[i] = std::strtod(next, &end);
+            if (end == next || !std::isfinite(values[i])) return false;
+            next = end;
+        }
+        if ((i < 6 && *next != ',') || (i == 6 && *next != '\0')) return false;
+        if (i < 6) ++next;
+    }
+    for (int i = 0; i < 2; ++i)
+        if (values[i] < 0 || values[i] > UINT32_MAX || std::floor(values[i]) != values[i]) return false;
+    sample.nano_seq = static_cast<uint32_t>(values[0]);
+    sample.has_nano_seq = true;
+    sample.time_s = values[1] / 1000.0;
+    sample.thrust = values[2]; sample.throttle = values[3];
+    sample.voltage = values[4]; sample.current = values[5]; sample.rpm = values[6];
+    return true;
+}
 void accept_line(const std::string& line) {
     if (line.empty()) return;
     std::lock_guard<std::mutex> lock(state.mutex);
@@ -131,6 +157,9 @@ void accept_line(const std::string& line) {
             state.last_error = string_field(json, "message");
         }
         cJSON_Delete(json);
+    } else if (line.compare(0, 3, "S1,") == 0) {
+        valid = parse_compact(line, sample);
+        if (!valid) ++state.malformed;
     } else if (parse_legacy(line, sample)) {
         valid = true;
         if (state.mode != "protocol_v1") state.mode = "legacy_debug";
@@ -139,6 +168,13 @@ void accept_line(const std::string& line) {
         if (state.mode != "protocol_v1") state.mode = "legacy_csv";
     }
     if (!valid) return;
+    if (sample.has_nano_seq && !state.history.empty() && state.history.back().has_nano_seq) {
+        const auto& previous = state.history.back();
+        const uint32_t advance = sample.nano_seq - previous.nano_seq;
+        // A counter rollover is valid; a reset/backward jump starts a new series.
+        if (advance > 1 && advance < 0x80000000UL && sample.time_s >= previous.time_s)
+            state.nano_gaps += advance - 1;
+    }
     sample.gateway_ms = now_ms();
     sample.seq = ++state.sequence;
     state.history.push_back(sample);

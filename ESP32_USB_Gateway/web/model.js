@@ -41,13 +41,14 @@
       samples.push({ seq: samples.length + 1, gateway_ms: timeline * 1000,
         time_s: first('nano_time_s', 'time'), thrust,
         throttle: first('throttle_percent', 'throttle'), voltage, current,
-        rpm: first('rpm'), power: first('power_w') ?? (finite(voltage) && finite(current) ? voltage * current : null) });
+        rpm: first('rpm'), power: first('power_w') ?? (finite(voltage) && finite(current) ? voltage * current : null),
+        nano_seq: first('nano_sequence') });
     }
     return { samples, skipped };
   }
   function csv(samples) {
-    return 'gateway_time_s,nano_time_s,thrust,throttle_percent,voltage_V,current_A,rpm,power_W\n' + samples.map(sample =>
-      [sample.gateway_ms / 1000, sample.time_s, sample.thrust, sample.throttle, sample.voltage, sample.current, sample.rpm, sample.power]
+    return 'gateway_time_s,nano_time_s,thrust,throttle_percent,voltage_V,current_A,rpm,power_W,nano_sequence\n' + samples.map(sample =>
+      [sample.gateway_ms / 1000, sample.time_s, sample.thrust, sample.throttle, sample.voltage, sample.current, sample.rpm, sample.power, sample.nano_seq]
         .map(value => finite(value) ? String(value) : '').join(',')).join('\n') + '\n';
   }
   function windowed(samples, seconds) {

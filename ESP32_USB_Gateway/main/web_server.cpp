@@ -57,7 +57,7 @@ static std::string query(httpd_req_t* req, const char* key) {
 static esp_err_t status_handler(httpd_req_t* req) {
     std::unique_lock<std::mutex> lock(state.mutex);
     auto* json = cJSON_CreateObject();
-    cJSON_AddStringToObject(json, "firmware", "1.0.0");
+    cJSON_AddStringToObject(json, "firmware", "1.1.0");
     cJSON_AddNumberToObject(json, "uptime_ms", now_ms());
     cJSON_AddStringToObject(json, "mode", state.mode.c_str());
     cJSON_AddBoolToObject(json, "usb_connected", state.usb_connected);
@@ -67,6 +67,16 @@ static esp_err_t status_handler(httpd_req_t* req) {
     const double age = state.history.empty() ? -1 : now_ms() - state.history.back().gateway_ms;
     cJSON_AddNumberToObject(json, "sample_age_ms", age);
     cJSON_AddBoolToObject(json, "live", state.usb_connected && age >= 0 && age < STALE_MS);
+    double span = 0, max_gap = 0;
+    size_t intervals = 0;
+    for (size_t i = state.history.size(); i > 1 && span < 1; --i) {
+        const double delta = state.history[i - 1].time_s - state.history[i - 2].time_s;
+        if (delta <= 0) break; // Nano restart/uptime rollover.
+        span += delta; max_gap = std::max(max_gap, delta); ++intervals;
+    }
+    cJSON_AddNumberToObject(json, "sample_rate_hz", age >= 0 && age < STALE_MS && span > 0 ? intervals / span : 0);
+    cJSON_AddNumberToObject(json, "max_sample_gap_ms", max_gap * 1000);
+    cJSON_AddNumberToObject(json, "nano_sequence_gaps", static_cast<double>(state.nano_gaps));
     if (!state.history.empty()) cJSON_AddItemToObject(json, "sample", sample_json(state.history.back()));
     cJSON_AddStringToObject(json, "last_error", state.last_error.c_str());
     cJSON_AddNumberToObject(json, "malformed", state.malformed);
@@ -106,7 +116,7 @@ static esp_err_t samples_handler(httpd_req_t* req) {
         if (sample.seq <= after) continue;
         cJSON_AddItemToArray(samples, sample_json(sample));
         next = sample.seq;
-        if (++count == 64) break;
+        if (++count == 256) break;
     }
     cJSON_AddNumberToObject(json, "next_seq", next);
     cJSON_AddBoolToObject(json, "gap", !state.history.empty() && after && after + 1 < state.history.front().seq);

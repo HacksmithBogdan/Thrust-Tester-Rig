@@ -7,7 +7,7 @@ The ESP32 is the USB host. The Nano remains the measurement controller, accessed
 - USB serial, 8 data bits, no parity, 1 stop bit.
 - Initial gateway default: **9600 baud**, matching the version 4 sketch. The Schubler calibration variant uses 115200. Set the gateway to match the installed firmware.
 - Updated measurement Nano firmware uses **115200 baud**. Change the gateway setting to match after updating the Nano. No automatic baud switching.
-- One UTF-8 JSON object per line, terminated by LF; CRLF is accepted. The gateway accepts up to **767 bytes** per received line; the Nano accepts up to **223 characters** per command, excluding CR/LF. Use ASCII field names.
+- One message per line, terminated by LF; CRLF is accepted. Commands/control messages are JSON; fast measurements use the S1 layout below. The gateway accepts up to **767 bytes** per received line; the Nano accepts up to **223 characters** per command, excluding CR/LF. Use ASCII field names.
 - Each line must be complete; a USB packet may contain partial lines or multiple lines. Oversized lines are discarded through the next LF. Queue overflow forces resynchronization and increments the diagnostic drop counter.
 - Measurements should be sent at the established sampling rate, independently of whether a phone is connected. Do not mix unframed human diagnostics into a sample JSON line.
 - Numbers must be finite. Use `null` for unavailable channels. Do not emit JSON `NaN` or `Infinity`.
@@ -37,6 +37,8 @@ About 2.5 seconds after opening a USB converter, the gateway sends:
 
 This changes no measurement settings. The old version 4 firmware ignores input. Updated firmware should answer with a hello and current configuration. It should also send these messages on startup, since a Nano reset can occur during USB enumeration.
 
+Gateway 1.1.0 retries discovery every five seconds until a protocol-v1 hello arrives. Once discovered, automatic hello stops so it cannot cancel a user calibration.
+
 ```json
 {"type":"hello","protocol":1,"device":"Thrust measurement Nano","capabilities":["tare","calibrate","set_config","get_config","save_config"]}
 ```
@@ -44,6 +46,19 @@ This changes no measurement settings. The old version 4 firmware ignores input. 
 Advertise **only implemented commands**. The gateway disables controls until their exact capability is present and clears capabilities on USB disconnect. A sample alone does not enable commands. Unsupported protocol versions do not enable them.
 
 ## Measurements: Nano → gateway
+
+Gateway **1.1.0+** and the fast Nano firmware use this compact measurement format at the same 115200 baud:
+
+```text
+S1,sequence,nano_time_ms,thrust,throttle,voltage,current,rpm
+S1,123,12300,4.56000,,46.80000,85.20000,18000.0
+```
+
+The first line above describes the fields; it is not transmitted. `S1` identifies the layout/version. Exactly seven comma-separated values follow it. Sequence and Nano uptime are unsigned 32-bit integers; thrust is required and finite. The last four channels may be empty to mean unavailable. Malformed, nonfinite, truncated or extra-field frames are rejected. The gateway tracks missing Nano sequence values while allowing restart and counter rollover. Both acquisition time and sequence survive into recordings, independently of USB receipt time. JSON control messages can appear between measurement lines.
+
+Each S1 line corresponds to a **fresh load-cell conversion**, not another copy of the previous reading. Electrical channels and RPM carry their latest independently acquired values. The fast Nano no longer uses a 10 Hz output timer. Commands and SD activity may delay acquisition; use measured intervals rather than assuming the nominal HX711 rate.
+
+The gateway also retains support for the original JSON sample representation:
 
 ```json
 {"type":"sample","protocol":1,"seq":123,"time_ms":12300,"thrust":4.56,"throttle":70,"voltage":46.8,"current":85.2,"rpm":18000}
@@ -94,7 +109,7 @@ The gateway rejects calibration commands during an active recording. The replace
 
 Send this after hello, `get_config`, and any settings change. `persisted` indicates whether current settings match EEPROM. Calibration controls populate from this snapshot, not historical constants in the repository. Configure the gateway's display unit to match `thrust_unit`; changing the display label does not convert the readings or recalibrate the Nano.
 
-The replacement Nano additionally includes `tare_ready`, `sd_ok` and `sd_file` (for example `RIG00001.CSV`). These fields are retained in the gateway's configuration snapshot and run metadata. Legacy EEPROM values are imported without writing; `persisted:false` remains until the first explicit modern save. The modern CRC-protected record starts at EEPROM address 32, preserving old bytes 0–2. See the [Nano guide](../Nano_USB_Controller/README.md) for validation bounds and persistence details.
+The replacement Nano additionally includes `tare_ready`, `sd_ok`, `sd_file` (for example `RIG00001.CSV`), `sample_format:"S1"`, measured `sample_hz`, and `max_sample_gap_ms` since startup. These fields are retained in the gateway's configuration snapshot and run metadata. Legacy EEPROM values are imported without writing; `persisted:false` remains until the first explicit modern save. The modern CRC-protected record starts at EEPROM address 32, preserving old bytes 0–2. See the [Nano guide](../Nano_USB_Controller/README.md) for validation bounds and persistence details.
 
 ## Acknowledgements and errors
 
@@ -119,12 +134,12 @@ There are no motor, engine, ESC, or emergency-stop commands in this protocol.
 CSV columns:
 
 ```csv
-gateway_time_s,nano_time_s,thrust,throttle_percent,voltage_V,current_A,rpm,power_W
+gateway_time_s,nano_time_s,thrust,throttle_percent,voltage_V,current_A,rpm,power_W,nano_sequence
 ```
 
-Gateway time is monotonic ESP32 uptime; Nano time can restart independently. Empty CSV cells represent unavailable channels. Metadata JSON stores the run name, notes, selected thrust unit, source format, phone-supplied wall-clock start time, final status, sample count, and available Nano configuration. The phone's clock provides a label and is not a measurement timebase.
+Gateway time is monotonic ESP32 uptime; Nano time can restart independently. Use `nano_time_s` for acquisition intervals; gateway time describes receipt and the display timeline. Empty CSV cells represent unavailable channels. `nano_sequence` is populated for S1 and empty for older formats. Metadata JSON stores the run name, notes, selected thrust unit, source format, phone-supplied wall-clock start time, final status, sample count, and available Nano configuration. The phone's clock provides a label and is not a measurement timebase.
 
-Gateway recording is explicit start/stop and records all received samples, including idle samples. It does not inherit the Nano SD logger's activity threshold. Logging continues across phone disconnects and USB reconnections; gaps are visible through gateway timestamps. A power interruption ends the run and marks its metadata `interrupted` on the next boot; up to the most recent flush interval may be lost. Data is flushed every ten samples.
+Gateway recording is explicit start/stop and records all received samples, including idle samples. It does not inherit the Nano SD logger's activity threshold. Logging continues across phone disconnects and USB reconnections; gaps are visible through gateway timestamps. A power interruption ends the run and marks its metadata `interrupted` on the next boot; up to the most recent flush interval may be lost. Data is flushed approximately every second and when a run is stopped.
 
 The replacement Nano independently writes every valid sample to a new `RIGnnnnn.CSV` per boot on its existing SD module. Its six columns remain `Time,Thrust,Throttle,Vbat,Current,RPM`, with `Time` in seconds to three decimals matching `nano_time_s`. This continuous backup can contain several gateway runs. Missing SD does not stop USB sampling; existing card files are never overwritten or formatted. No automatic synchronization or SD file transfer is implemented.
 
@@ -134,8 +149,8 @@ The dashboard uses these same-origin routes on port 80:
 
 | Route | Function |
 | --- | --- |
-| `GET /api/status` | USB/stream health, latest sample, public settings, recording/storage state, capabilities, configuration and command result. No Wi-Fi password is returned. |
-| `GET /api/samples?after=N` | Up to 64 samples after gateway sequence N, `next_seq`, and RAM-history gap flag. |
+| `GET /api/status` | USB/stream health, measured `sample_rate_hz`, recent `max_sample_gap_ms`, cumulative `nano_sequence_gaps`, latest sample, public settings, recording/storage state, capabilities, configuration and command result. No Wi-Fi password is returned. |
+| `GET /api/samples?after=N` | Up to 256 samples after gateway sequence N, `next_seq`, and RAM-history gap flag. |
 | `GET /api/console?after=N` | Recent raw serial lines after console sequence N. |
 | `GET /api/runs` | Up to 64 run metadata records, including CSV size. |
 | `GET /api/download?id=RUN` | Download completed run CSV. Add `&format=json` for metadata. |

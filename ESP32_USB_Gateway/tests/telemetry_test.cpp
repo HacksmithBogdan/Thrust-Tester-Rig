@@ -69,9 +69,47 @@ int main() {
     state.pending_request = 18;
     accept_line(R"({"type":"ack","protocol":1,"request_id":18,"ok":true,"message":"Tared"})");
     assert(state.command_state == "success" && state.pending_request == 0);
+    const auto compact_start = state.history.size();
+    accept_line("S1,100,3000,0.12500,,48.00000,2.00000,18000.0");
+    assert(state.history.size() == compact_start + 1 && state.mode == "protocol_v1");
+    assert(state.history.back().has_nano_seq && state.history.back().nano_seq == 100);
+    assert(state.history.back().time_s == 3 && state.history.back().thrust == 0.125);
+    assert(std::isnan(state.history.back().throttle) && state.history.back().power() == 96);
+    accept_line("S1,101,3012,-0.12500,,,,");
+    assert(state.history.size() == compact_start + 2 && std::isnan(state.history.back().voltage));
+    accept_line("S1,104,3050,1,50,48,2,18000");
+    assert(state.nano_gaps == 2);
+    accept_line("S1,1,50,1,50,48,2,18000"); // Nano restart must not count billions of gaps.
+    assert(state.nano_gaps == 2);
+    const auto valid_compact = state.history.size();
+    const std::string bad_lines[] = {
+        "S1,1,50,,50,48,2,18000", "S1,1,50,nan,50,48,2,18000",
+        "S1,1,50,1,50,inf,2,18000", "S1,1,50,1,50,48,2",
+        "S1,1,50,1,50,48,2,18000,extra", "S1,1.5,50,1,50,48,2,18000",
+        "S1,4294967296,50,1,50,48,2,18000", "S1,1,-1,1,50,48,2,18000",
+        "S1,1,50,1,50,48,2,18000tail", "S1,,,,,,,"
+    };
+    const auto malformed_before = state.malformed;
+    for (const auto& invalid : bad_lines) accept_line(invalid);
+    assert(state.history.size() == valid_compact && state.malformed == malformed_before + 10);
+    accept_line("S1,4294967295,500,1,,,,");
+    const auto gaps_before_wrap = state.nano_gaps;
+    accept_line("S1,0,513,1,,,,");
+    assert(state.nano_gaps == gaps_before_wrap);
+    // A full short pulse split at arbitrary USB chunk boundaries retains every
+    // acquisition timestamp and sequence, independently of browser refreshes.
+    StreamDecoder fast_decoder(MAX_LINE);
+    std::string pulse;
+    for (unsigned i = 0; i < 48; ++i)
+        pulse += "S1," + std::to_string(i + 1) + "," + std::to_string(1000 + i * 25 / 2) + ",0.25,,48,2,0\n";
+    const auto before_pulse = state.history.size();
+    for (size_t offset = 0; offset < pulse.size(); offset += 17)
+        assert(fast_decoder.feed(reinterpret_cast<const uint8_t*>(pulse.data() + offset), std::min(size_t(17), pulse.size() - offset), accept_line) == 0);
+    assert(state.history.size() == before_pulse + 48 && state.history.back().nano_seq == 48);
+    assert(state.history.back().time_s == 1.587);
     for (int i = 0; i < 650; ++i) accept_line(debug);
     assert(state.history.size() == HISTORY_SIZE && state.console.size() <= 40);
     state.usb_connected = false;
     assert(!has_capability_locked("tare"));
-    std::cout << "PASS: legacy debug/CSV, JSON samples, unavailable channels, strict framing, capabilities, ACK matching, config, bounded history\n";
+    std::cout << "PASS: legacy/JSON/S1 samples, missing channels, sequence gaps/reset/wrap, fragmented 48-sample pulse, strict framing, capabilities, ACK matching, bounded history\n";
 }

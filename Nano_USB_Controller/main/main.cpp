@@ -10,15 +10,17 @@
 using rig_nano::Config;
 static Config config;
 static bool persisted=false,tared=false,sd_ok=false;
-static int32_t zero_offset=0,last_raw=0;
-static uint32_t raw_ms=0,adc_ms=0,sample_ms=0,sample_us=0,sequence=0;
+static int32_t zero_offset=0;
+static uint32_t adc_ms=0,rpm_ms=0,rpm_us=0,sequence=0,sd_flush_ms=0;
+static uint32_t rate_ms=0,last_sample_ms=0;
+static uint16_t rate_count=0,max_sample_gap_ms=0;
+static float measured_hz=0,last_rpm=0;
 static int16_t adc_raw[2]={0,0};
 static uint8_t adc_channel=0;
 static bool adc_waiting=false,adc_healthy=false;
 static uint32_t adc_started=0,adc_retry=0;
 static File sd_log;
 static char sd_name[13]="";
-static uint8_t flush_count=0;
 static volatile uint32_t edges=0,pwm_rise=0,pwm_seen=0;
 static volatile uint16_t pwm_width=0;
 static volatile uint8_t previous_port=0;
@@ -68,7 +70,9 @@ static void send_config(){
     out(F(",\"divider_ratio\":"));number(config.divider,6);
     out(F(",\"thrust_unit\":\"kgf\",\"persisted\":"));out(persisted?F("true"):F("false"));
     out(F(",\"tare_ready\":"));out(tared?F("true"):F("false"));out(F(",\"sd_ok\":"));out(sd_ok?F("true"):F("false"));
-    out(F(",\"sd_file\":\""));out(sd_name);out(F("\"}"));end_line();
+    out(F(",\"sd_file\":\""));out(sd_name);
+    out(F("\",\"sample_format\":\"S1\",\"sample_hz\":"));number(measured_hz,2);
+    out(F(",\"max_sample_gap_ms\":"));out(max_sample_gap_ms);out(F("}"));end_line();
 }
 static void hello(){
     out(F("{\"type\":\"hello\",\"protocol\":1,\"device\":\"Thrust measurement Nano\",\"capabilities\":[\"tare\",\"calibrate\",\"set_config\",\"get_config\",\"save_config\"]}"));
@@ -113,7 +117,7 @@ static bool twi_read(uint8_t& value,bool last){
     value=TWDR;return true;
 }
 static bool ads_start(uint8_t channel){
-    // Single-shot, AIN0/1 to GND, +/-6.144 V PGA, 128 SPS, comparator disabled.
+    // Single-shot, AIN0/1 to GND, +/-6.144 V PGA, 250 SPS, comparator disabled.
     const uint16_t bits=rig_nano::ads_config(channel);
     const bool ok=twi_start(0x48,false)&&twi_write(1)&&twi_write(bits>>8)&&twi_write(bits);
     twi_stop();return ok;
@@ -130,14 +134,14 @@ static void update_adc(uint32_t now){
         if(!adc_waiting){adc_healthy=false;adc_retry=now+1000;}
         return;
     }
-    if(now-adc_started<9)return;
+    if(now-adc_started<5)return;
     int16_t ready=0,value=0;
     if(!ads_read(1,ready)||now-adc_started>40){adc_healthy=false;adc_waiting=false;adc_retry=now+1000;return;}
     if(!(static_cast<uint16_t>(ready)&0x8000))return;
     if(!ads_read(0,value)){adc_healthy=false;adc_waiting=false;adc_retry=now+1000;return;}
     adc_raw[adc_channel]=value;
     if(adc_channel==0){adc_channel=1;adc_waiting=ads_start(1);adc_started=now;if(!adc_waiting){adc_healthy=false;adc_retry=now+1000;}}
-    else{adc_healthy=true;adc_ms=now;adc_waiting=false;adc_retry=now+50;}
+    else{adc_healthy=true;adc_ms=now;adc_waiting=false;adc_retry=now;}
 }
 static bool hx_read(int32_t& result){
     if(PIND&_BV(PD3))return false;
@@ -176,44 +180,45 @@ static void accumulate(int32_t value){
 }
 static void setup_sd(){
     if(!SD.begin(4)){event(F("Nano SD unavailable; USB measurements continue"));return;}
+    // Probe each candidate directly. Directory name casing/format must never
+    // turn an existing filename into an initialization failure or overwrite.
     uint32_t next=1;
-    File root=SD.open("/");
-    while(root){File entry=root.openNextFile();if(!entry)break;
-        const char* name=entry.name();
-        if(!entry.isDirectory()&&strlen(name)==12&&!strncmp_P(name,PSTR("RIG"),3)&&!strcmp_P(name+8,PSTR(".CSV"))){
-            uint32_t id=0;bool valid=true;
-            for(uint8_t i=3;i<8;++i){if(name[i]<'0'||name[i]>'9'){valid=false;break;}id=id*10+name[i]-'0';}
-            if(valid&&id>=next)next=id+1;
-        }
-        entry.close();pump_rx();
+    for(;next<=99999;++next){
+        snprintf_P(sd_name,sizeof(sd_name),PSTR("RIG%05lu.CSV"),static_cast<unsigned long>(next));
+        pump_rx();if(!SD.exists(sd_name))break;
     }
-    root.close();
-    if(next>99999){event(F("Nano SD run filename limit reached"));return;}
-    snprintf_P(sd_name,sizeof(sd_name),PSTR("RIG%05lu.CSV"),static_cast<unsigned long>(next));
-    if(SD.exists(sd_name)){event(F("Nano SD file already exists; preserving it"));sd_name[0]=0;return;}
+    if(next>99999){sd_name[0]=0;event(F("Nano SD run filename limit reached"));return;}
     sd_log=SD.open(sd_name,FILE_WRITE);
     if(!sd_log){event(F("Nano SD file could not be created"));sd_name[0]=0;return;}
     sd_log.println(F("Time,Thrust,Throttle,Vbat,Current,RPM"));sd_log.flush();
     sd_ok=!sd_log.getWriteError();
     if(!sd_ok){sd_log.close();event(F("Nano SD header write failed"));}
+    sd_flush_ms=millis();
 }
-static void csv_cell(float value,uint8_t digits){if(isfinite(value))sd_log.print(value,digits);}
-static void write_sd(uint32_t now,float thrust,float throttle,float voltage,float current,float rpm){
-    if(!sd_ok)return;
-    // Same Nano uptime as time_ms in the USB stream, with millisecond precision.
-    sd_log.print(now/1000);sd_log.write('.');uint16_t fraction=now%1000;
-    if(fraction<100)sd_log.write('0');
-    if(fraction<10)sd_log.write('0');
-    sd_log.print(fraction);sd_log.write(',');
-    csv_cell(thrust,5);sd_log.write(',');csv_cell(throttle,3);sd_log.write(',');csv_cell(voltage,5);sd_log.write(',');
-    csv_cell(current,5);sd_log.write(',');csv_cell(rpm,3);sd_log.println();pump_rx();
-    if(++flush_count>=10){sd_log.flush();flush_count=0;}
-    if(sd_log.getWriteError()){sd_ok=false;sd_log.close();event(F("Nano SD write failed; USB measurements continue"));send_config();}
-}
+// Format each numeric cell once, then send the identical payload to USB and SD.
+// Empty cells mean unavailable, preserving the old six-column SD file layout.
+class SampleOutput:public Print {
+public:
+    size_t write(uint8_t value) override {
+        Serial.write(value);if(sd_ok)sd_log.write(value);pump_rx();return 1;
+    }
+    void cell(float value,uint8_t digits){if(isfinite(value))print(value,digits);}
+};
 static void send_sample(uint32_t now,float thrust,float throttle,float voltage,float current,float rpm){
-    out(F("{\"type\":\"sample\",\"protocol\":1,\"seq\":"));out(++sequence);out(F(",\"time_ms\":"));out(now);
-    out(F(",\"thrust\":"));number(thrust,5);out(F(",\"throttle\":"));number(throttle,3);
-    out(F(",\"voltage\":"));number(voltage,5);out(F(",\"current\":"));number(current,5);out(F(",\"rpm\":"));number(rpm,3);out(F("}"));end_line();
+    // S1,sequence,nano_time_ms,thrust,throttle,voltage,current,rpm
+    // At 80 Hz this fits 115200 baud comfortably; commands remain JSON v1.
+    out(F("S1,"));out(++sequence);out(F(","));out(now);out(F(","));
+    if(sd_ok){
+        sd_log.print(now/1000);sd_log.write('.');const uint16_t fraction=now%1000;
+        if(fraction<100)sd_log.write('0');
+        if(fraction<10)sd_log.write('0');
+        sd_log.print(fraction);sd_log.write(',');
+    }
+    SampleOutput output;
+    output.cell(thrust,5);output.write(',');output.cell(throttle,1);output.write(',');
+    output.cell(voltage,5);output.write(',');output.cell(current,5);output.write(',');output.cell(rpm,1);output.println();
+    if(sd_ok&&now-sd_flush_ms>=1000){sd_log.flush();sd_flush_ms=now;}
+    if(sd_ok&&sd_log.getWriteError()){sd_ok=false;sd_log.close();event(F("Nano SD write failed; USB measurements continue"));send_config();}
 }
 static int16_t telemetry_value(float v){if(!isfinite(v))return 0;return static_cast<int16_t>(constrain(v,-32768.0f,32767.0f));}
 static void legacy_telemetry(float thrust,float voltage,float current,float rpm){
@@ -277,30 +282,37 @@ void setup(){
     pinMode(A4,INPUT_PULLUP);pinMode(A5,INPUT_PULLUP);TWSR=0;TWBR=(F_CPU/100000UL-16)/2;TWCR=_BV(TWEN);
     hello();
     setup_sd();send_config();begin_phase(Phase::BootTare,0);
-    sample_us=micros();sample_ms=millis();
+    rpm_us=micros();rpm_ms=rate_ms=millis();
 }
 void loop(){
     pump_rx();
     if(rx_ready){process_request();rx_length=0;rx_ready=false;rx_overflow=false;request.clear();}
-    const uint32_t now=millis();
-    update_adc(now);pump_rx();
     int32_t raw;
-    if(hx_read(raw)){last_raw=raw;raw_ms=now;accumulate(raw);}
+    // Give each fresh load-cell conversion priority over background I2C work.
+    const bool fresh_thrust=hx_read(raw);
+    const uint32_t now=millis();
+    if(fresh_thrust){
+        if(last_sample_ms){const uint32_t gap=now-last_sample_ms;if(gap>max_sample_gap_ms)max_sample_gap_ms=gap>65535?65535:gap;}
+        last_sample_ms=now;++rate_count;
+        if(now-rate_ms>=1000){measured_hz=rate_count*1000.0f/(now-rate_ms);rate_count=0;rate_ms=now;}
+        accumulate(raw);
+    }
     if(phase!=Phase::None&&now-phase_started>3500)finish_phase(false,F("Load cell timeout; check HX711 wiring/power"));
-    if(now-sample_ms<100)return;
-    sample_ms=now;
-    uint32_t count,seen;uint16_t width;
-    ATOMIC_BLOCK(ATOMIC_RESTORESTATE){count=edges;edges=0;width=pwm_width;seen=pwm_seen;}
-    const uint32_t tick=micros(),elapsed=tick-sample_us;sample_us=tick;
-    if(!tared||!raw_ms||now-raw_ms>400)return;
-    const float thrust=(static_cast<float>(last_raw)-zero_offset)/config.factor;
-    if(!isfinite(thrust))return;
-    const float throttle=rig_nano::throttle_valid(width,tick-seen)?constrain((width-1000)/10.0f,0.0f,100.0f):NAN;
-    const bool fresh=adc_healthy&&now-adc_ms<=400;
-    const float voltage=fresh?adc_raw[1]*0.0001875f*config.divider:NAN;
-    const float current=fresh?adc_raw[0]*0.0001875f/config.shunt:NAN;
-    const float rpm=rig_nano::rpm_from_edges(count,elapsed,config.poles);
-    send_sample(now,thrust,throttle,voltage,current,rpm);
-    write_sd(now,thrust,throttle,voltage,current,rpm);
-    legacy_telemetry(thrust,voltage,current,rpm);
+    if(fresh_thrust&&tared){
+        const float thrust=(static_cast<float>(raw)-zero_offset)/config.factor;
+        uint32_t seen;uint16_t width;
+        ATOMIC_BLOCK(ATOMIC_RESTORESTATE){width=pwm_width;seen=pwm_seen;}
+        const uint32_t tick=micros();const bool background_due=now-rpm_ms>=100;
+        if(background_due){
+            uint32_t count;ATOMIC_BLOCK(ATOMIC_RESTORESTATE){count=edges;edges=0;}
+            last_rpm=rig_nano::rpm_from_edges(count,tick-rpm_us,config.poles);rpm_us=tick;rpm_ms=now;
+        }
+        const float throttle=rig_nano::throttle_valid(width,tick-seen)?constrain((width-1000)/10.0f,0.0f,100.0f):NAN;
+        const bool fresh=adc_healthy&&now-adc_ms<=100;
+        const float voltage=fresh?adc_raw[1]*0.0001875f*config.divider:NAN;
+        const float current=fresh?adc_raw[0]*0.0001875f/config.shunt:NAN;
+        if(isfinite(thrust))send_sample(now,thrust,throttle,voltage,current,last_rpm);
+        if(background_due)legacy_telemetry(thrust,voltage,current,last_rpm);
+    }
+    update_adc(millis());pump_rx();
 }

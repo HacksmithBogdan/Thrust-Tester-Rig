@@ -20,12 +20,15 @@ Target: Waveshare ESP32-S3 Zero, 4 MB flash. ESP-IDF firmware; not an Arduino .i
    Password: ThrustRig-2026
    Open: http://192.168.4.1
    Keep the connection when the phone reports no internet.
-8. Existing Nano firmware: enable DEBUG and match its serial baud (9600 default;
-   Schubler calibration sketch uses 115200). Change gateway baud in Device settings.
+8. Updated measurement Nano: select 115200 baud under Device & connection ->
+   Nano serial speed. On a phone, swipe the top navigation tabs left to reveal it.
+   Archived version 4 needs DEBUG enabled at 9600; the Schubler sketch uses 115200.
 
-Monitoring, plots, ESP32 recordings, saved-run viewing, CSV export and local CSV
-import work with the original debug stream. USB calibration requires the later
-Nano protocol update and remains disabled until that Nano advertises support.
+Gateway 1.1 supports the fast Nano S1 stream at 115200 baud, retains JSON commands,
+and refreshes the phone more frequently. Flash the matching Nano_USB_Controller
+firmware separately; the gateway never programs it automatically. Calibration
+enables only after the Nano advertises capabilities. Original debug/CSV streams
+remain supported. One-/five-second plot windows help inspect short thrust pulses.
 
 Runs are stored in ESP32 flash, not on the Nano's SD card. They continue when the
 phone disconnects. Stop a run before viewing/downloading it. Export CSV and
@@ -36,8 +39,8 @@ This flash command writes bootloader, partition table and application only. It
 does not erase the settings or recording partitions. Do not use erase_flash
 unless you intend to remove every saved run and all settings.
 
-Firmware is software-validated; USB enumeration, board power, and measurements
-must still be verified on the actual rig. Keep propulsion power off for hookup.
+See the repository HARDWARE_TEST.md files for measured USB/rate results and
+remaining reference-calibration checks. Keep propulsion power off for hookup.
 
 If the hotspot does not appear after flashing, release BOOT and press RESET,
 or unplug/reconnect USB without holding BOOT, to leave download mode.

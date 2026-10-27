@@ -103,13 +103,15 @@ static void usb_worker(void*) {
         }
         // Legacy firmware ignores input. Updated firmware replies to this discovery
         // request with HELLO/capabilities; no settings-changing command is automatic.
-        const int64_t hello_at = now_ms() + 2500;
-        bool hello_sent = false;
+        int64_t hello_at = now_ms() + 2500;
         while (!disconnected) {
-            if (!hello_sent && now_ms() >= hello_at) {
+            bool discovered;
+            { std::lock_guard<std::mutex> lock(state.mutex); discovered = state.mode == "protocol_v1"; }
+            if (!discovered && now_ms() >= hello_at) {
                 uint8_t hello[] = "{\"type\":\"command\",\"protocol\":1,\"request_id\":0,\"command\":\"hello\",\"args\":{}}\n";
                 device->tx_blocking(hello, sizeof(hello) - 1, 500);
-                hello_sent = true;
+                // Retry if a startup message or old wrong-baud fragment ate hello.
+                hello_at = now_ms() + 5000;
             }
             TxMessage message {};
             if (xQueueReceive(tx_queue, &message, pdMS_TO_TICKS(100))) {
