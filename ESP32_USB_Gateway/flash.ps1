@@ -15,6 +15,7 @@ if ($LASTEXITCODE -ne 0) {
     & $venvPython -m pip install --disable-pip-version-check esptool==4.9.0
     if ($LASTEXITCODE -ne 0) { throw 'Could not install esptool.' }
 }
-& $venvPython -m esptool --chip esp32s3 --port $Port --baud 460800 --before default_reset --after hard_reset write_flash --flash_size 16MB 0x0 (Join-Path $binaryRoot 'bootloader.bin') 0x8000 (Join-Path $binaryRoot 'partitions.bin') 0x10000 (Join-Path $binaryRoot 'firmware.bin')
+& $venvPython -m esptool --chip esp32s3 --port $Port --baud 460800 --before default_reset --after hard_reset write_flash --flash_size 4MB 0x0 (Join-Path $binaryRoot 'bootloader.bin') 0x8000 (Join-Path $binaryRoot 'partitions.bin') 0x10000 (Join-Path $binaryRoot 'firmware.bin')
 if ($LASTEXITCODE -ne 0) { throw 'Flashing failed. Hold BOOT, press RESET, release BOOT, and check the COM port.' }
-Write-Output 'Flashed LCD 2.8B. Fresh installations start in PC service mode. Select Nano USB on the Device screen when moving the cable to the Nano.'
+Write-Output 'Flashed. After normal boot the native USB port switches to host mode. Connect to Wi-Fi ThrustTester (or your saved SSID).'
+Write-Output 'If the hotspot does not appear, power-cycle or press RESET with BOOT released.'

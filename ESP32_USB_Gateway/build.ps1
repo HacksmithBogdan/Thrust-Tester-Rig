@@ -29,7 +29,7 @@ try {
 } finally { Pop-Location }
 $artifactRoot = Join-Path $projectRoot 'artifacts'
 New-Item -ItemType Directory -Path $artifactRoot -Force | Out-Null
-$outputRoot = Join-Path $buildRoot '.pio\build\esp32-s3-lcd28b'
+$outputRoot = Join-Path $buildRoot '.pio\build\esp32-s3-zero'
 foreach ($binary in @('firmware.bin','bootloader.bin','partitions.bin')) {
     Copy-Item -LiteralPath (Join-Path $outputRoot $binary) -Destination $artifactRoot -Force
 }
@@ -42,5 +42,5 @@ if (Test-Path -LiteralPath (Join-Path $buildRoot 'dependencies.lock')) {
 $binaryHashes = Get-ChildItem -LiteralPath $artifactRoot -Filter '*.bin' | Get-FileHash -Algorithm SHA256
 $binaryHashes | ForEach-Object { $_.Hash + '  ' + [System.IO.Path]::GetFileName($_.Path) } | Set-Content -LiteralPath (Join-Path $artifactRoot 'SHA256SUMS.txt') -Encoding ascii
 $packageItems = @('firmware.bin','bootloader.bin','partitions.bin','flash.ps1','FLASHING.txt','SHA256SUMS.txt') | ForEach-Object { Join-Path $artifactRoot $_ }
-Compress-Archive -LiteralPath $packageItems -DestinationPath (Join-Path $artifactRoot 'thrust-tester-esp32-s3-lcd28b.zip') -Force
-Write-Output "Firmware package: $artifactRoot\thrust-tester-esp32-s3-lcd28b.zip"
+Compress-Archive -LiteralPath $packageItems -DestinationPath (Join-Path $artifactRoot 'thrust-tester-esp32-s3-zero.zip') -Force
+Write-Output "Firmware package: $artifactRoot\thrust-tester-esp32-s3-zero.zip"

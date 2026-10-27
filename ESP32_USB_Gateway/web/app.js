@@ -84,16 +84,14 @@
     $('#diagAge').textContent = status.sample_age_ms < 0 ? 'No sample received' : `${(status.sample_age_ms / 1000).toFixed(1)} s ago`;
     $('#diagErrors').textContent = `${status.malformed} / ${status.dropped}`;
     $('#diagUptime').textContent = M.duration(status.uptime_ms / 1000);
-    $('#diagStorage').textContent = status.storage.ready ? `${M.bytes(status.storage.used)} used / microSD` : status.storage.message || 'No microSD';
-    $('#diagDisplay').textContent = `${status.display_ready ? 'LCD ready' : 'LCD unavailable'} / ${status.touch_ready ? 'touch ready' : 'touch unavailable'} / ${status.touch_events || 0} taps`;
+    $('#diagStorage').textContent = status.storage.ready ? `${M.bytes(status.storage.used)} used` : 'Unavailable';
     if (!state.initialized) {
-      for (const name of ['ssid', 'ip', 'baud', 'unit', 'usb_host']) $('#settingsForm').elements[name].value = settings[name];
+      for (const name of ['ssid', 'ip', 'baud', 'unit']) $('#settingsForm').elements[name].value = settings[name];
       state.initialized = true;
     }
     const notice = $('#connectionNotice');
     let noticeText = '';
-    if (status.settings.usb_host === false) noticeText = 'PC service mode is selected. Choose Nano USB on the Device screen or in gateway settings when moving the cable to the Nano.';
-    else if (!status.usb_connected) noticeText = status.usb_status + '. Open Device & connection for hookup checks.';
+    if (!status.usb_connected) noticeText = status.usb_status + '. Open Device & connection for hookup checks.';
     else if (!status.live) noticeText = 'USB is connected, but no fresh measurements are arriving. Check DEBUG mode and the selected Nano baud rate.';
     else if (status.mode !== 'protocol_v1') noticeText = 'Legacy Nano stream connected. Monitoring and gateway recording are ready. Update the Nano firmware to enable calibration commands.';
     notice.hidden = !noticeText;
@@ -242,7 +240,7 @@
     confirmAction('Apply measurement settings?', 'These values change the Nano’s calculations immediately. Check the resulting readings before saving to EEPROM.', () => command('set_config', args));
   };
   $('#settingsForm').onsubmit = event => {
-    event.preventDefault(); const settings = Object.fromEntries(new FormData(event.currentTarget)); settings.baud = Number(settings.baud); settings.usb_host = settings.usb_host === 'true';
+    event.preventDefault(); const settings = Object.fromEntries(new FormData(event.currentTarget)); settings.baud = Number(settings.baud);
     confirmAction('Restart with these settings?', `The gateway will restart. Reconnect to “${settings.ssid}” and open http://${settings.ip}. The serial speed must match the Nano.`, async () => {
       const result = await api('/api/settings', settings); toast(`Settings saved. Reconnect at http://${result.ip}.`);
     });

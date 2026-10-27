@@ -27,7 +27,6 @@ struct Settings {
     std::string ip = "192.168.4.1";
     std::string unit = "kgf";
     uint32_t baud = 9600;
-    bool usb_host = false;
 };
 struct ConsoleLine { uint64_t seq; std::string text; };
 struct State {
@@ -50,11 +49,6 @@ struct State {
     uint64_t recorded_samples = 0;
     int64_t recording_started_ms = 0;
     size_t storage_total = 0, storage_used = 0;
-    std::string storage_status = "No microSD card mounted";
-    std::string card_name;
-    bool display_ready = false, touch_ready = false, sd_selftest_ok = false;
-    uint32_t touch_events = 0;
-    unsigned active_downloads = 0;
 };
 extern State state;
 extern QueueHandle_t rx_queue, tx_queue;
@@ -72,9 +66,6 @@ double number_field(const cJSON* json, const char* key, double fallback = NAN);
 void load_settings();
 bool save_settings(const Settings& settings);
 void init_storage();
-bool remount_storage(std::string& error);
-bool storage_selftest(std::string& error);
-bool prepare_fresh_storage(std::string& error);
 void refresh_storage_locked();
 bool valid_run_id(const std::string& id);
 std::string run_path(const std::string& id, const char* suffix);
@@ -85,12 +76,4 @@ void append_recording_locked(const Sample& sample);
 void start_usb();
 void start_web();
 void start_wifi();
-bool submit_command(const std::string& command, const cJSON* args, uint32_t& request, std::string& error);
-void start_touch_ui();
-void start_pc_service();
-bool board_init();
-bool board_touch(int& x, int& y);
-void* board_panel();
-void board_backlight(unsigned percent);
-uint16_t* board_snapshot();
 } // namespace rig

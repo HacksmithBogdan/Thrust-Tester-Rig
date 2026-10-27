@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlparse
 WEB = Path(__file__).resolve().parents[1] / 'web'
 LOCK = threading.Lock()
 START = time.monotonic()
-SETTINGS = dict(ssid='ThrustTester', ip='192.168.4.1', baud=9600, unit='kgf', usb_host=True)
+SETTINGS = dict(ssid='ThrustTester', ip='192.168.4.1', baud=9600, unit='kgf')
 CAPS = ['tare', 'calibrate', 'set_config', 'get_config', 'save_config']
 MODE = 'legacy_debug'
 CONFIG = dict(calibration_factor=30310, poles=20, shunt_ohms=0.000192, divider_ratio=34.13, persisted=True)
@@ -104,12 +104,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(dict(mode=MODE))
             if url.path == '/api/status':
                 active = RECORDING is not None
-                return self.send(dict(demo=True, firmware='1.1.0-lcd28b-preview', display_ready=True, touch_ready=True, touch_events=0, uptime_ms=(time.monotonic() - START) * 1000 + 60000,
+                return self.send(dict(demo=True, firmware='1.0.0-preview', uptime_ms=(time.monotonic() - START) * 1000 + 60000,
                                       mode=MODE, usb_connected=MODE != 'disconnected', usb_status='Simulated USB device', vid=0x1A86, pid=0x7523,
                                       sample_age_ms=12000 if MODE == 'stale' else 50, live=MODE not in ('disconnected', 'stale'),
                                       sample=SAMPLES[-1] if SAMPLES else None, last_error='', malformed=0, dropped=0,
                                       capabilities=CAPS if MODE == 'protocol_v1' else [], nano_config=CONFIG if MODE == 'protocol_v1' else {},
-                                      settings=SETTINGS, storage=dict(ready=True, kind='microSD', card='preview', message='Simulated microSD', total=1073741824, used=sum(metadata(r)['bytes'] for r in RUNS.values())),
+                                      settings=SETTINGS, storage=dict(ready=True, total=2031616, used=sum(metadata(r)['bytes'] for r in RUNS.values())),
                                       recording=dict(active=active, id=RECORDING['id'] if active else '', samples=RECORDING['samples'] if active else 0,
                                                      duration_s=time.monotonic() - RECORDING['started_monotonic'] if active else 0), command=COMMAND))
             if url.path == '/api/samples':
