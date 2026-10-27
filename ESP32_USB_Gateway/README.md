@@ -1,136 +1,130 @@
-# ESP32-S3 USB gateway and local dashboard
+# Touchscreen USB gateway for the thrust tester
 
-This firmware adds a phone-accessible interface to the existing thrust rig without rewiring its measurement Nano. The ESP32-S3 hosts the Nano over USB, creates its own Wi-Fi network, serves all dashboard files locally, and records received measurements to its own flash.
+This firmware adds local touchscreen controls, a phone dashboard, and microSD recording to the existing thrust rig. It targets the **Waveshare ESP32-S3-Touch-LCD-2.8B** (480 × 640 RGB display, 16 MB flash, 8 MB PSRAM). The measurement Nano stays installed and connects through its USB socket.
 
-The original Arduino sketches remain unchanged. The ESP32 is an additional interface; the previous FrSky telemetry hardware does not need to be used.
+The archived Arduino firmware is unchanged. Live monitoring works with its debug serial stream. USB calibration needs the planned Nano firmware update described in [PROTOCOL.md](PROTOCOL.md).
 
-## First connection
+## First use
 
 | Setting | Default |
 | --- | --- |
 | Wi-Fi network | **ThrustTester** |
 | Wi-Fi password | **ThrustRig-2026** |
-| Web address | **http://192.168.4.1** |
-| Gateway / subnet | `192.168.4.1` / `255.255.255.0` |
-| DHCP | Enabled for phone/client addresses |
+| Dashboard | **http://192.168.4.1** |
+| Subnet / DHCP | `255.255.255.0`; client addresses assigned automatically |
 | Nano serial | **9600 baud, 8-N-1** |
-| Thrust display label | **kgf**; confirm against the actual load-cell calibration |
+| USB mode on a fresh installation | **Computer / PC service** |
+| Thrust unit label | **kgf**, to be checked against the load-cell calibration |
+| Recording location | microSD **`/thrust/`** |
 
-Wi-Fi name, password, IP, baud, and unit label can be changed under **Device & connection**. Leaving the password field empty keeps it unchanged. Saving restarts the gateway. The AP password controls access to the dashboard; choose your own password before routine use.
+Join the network from a phone, keep the connection when it reports no internet, and open the address directly. All assets are served by the ESP32; there is no cloud, account, CDN, installed app, or internet requirement. There is no captive portal. Change the default password under **Device & connection** before routine use.
 
-Join this Wi-Fi network from the phone and keep the connection when it reports no internet. Open the HTTP address directly. No internet, cloud service, CDN, account, or installed phone app is needed. This implementation uses an explicit address rather than a captive portal.
+The LCD has four pages:
 
-## Hardware and USB power
+- **Live:** thrust, RPM, volts, amps, watts, throttle, and named start/stop recording with notes.
+- **Calibrate:** tare, known-load calibration, load-cell factor, transitions per revolution, shunt resistance, voltage divider, and explicit Nano EEPROM save. Controls require the Nano's advertised capabilities and show its acknowledgement or timeout.
+- **Runs:** browse saved run names, notes, status, and sample counts. The phone dashboard provides plots and downloads.
+- **Device:** connection details, card usage, microSD remount/read-write check, USB mode, serial speed, and brightness. Swipe to reach lower controls.
 
-Target: **Waveshare ESP32-S3 Zero with 4 MB flash**. The firmware does not depend on PSRAM. Other boards require checking their flash configuration, USB routing, and power circuit.
+The phone dashboard also provides live plots, trace export, recorded-run plots, CSV/JSON downloads, deletion, original six-column log import, raw serial diagnostics, and Wi-Fi/IP/unit settings. Both interfaces share the same state and command validation. Recording continues with the phone disconnected.
 
-The ESP32 runs as the **USB host**, and the Nano's USB-to-serial chip is its peripheral. The included Espressif drivers support registered CH34x, CP210x and FT23x converter IDs. Generic native USB CDC devices and every possible clone converter are not covered by that registration. The dashboard displays a detected VID/PID when available to help identify unsupported hardware.
+The gateway observes measurements and performs calibration; it has no motor, ESC, engine, or emergency-stop commands. The unit setting changes the label and does not convert or recalibrate readings.
 
-**A cable alone generally will not power the ESP32 from an already-powered Nano.** The classic Nano schematic has a diode from USB VBUS to its 5 V rail that blocks power in the reverse direction. A clone may differ. The Waveshare Zero has its USB VBUS tied to its VBUS power input and regulator, and fixed USB-C sink CC resistors; it is not a complete switched USB host power port.
+## USB mode and power
 
-Use an independently powered, regulated 5 V feed to the Zero's VBUS/5 V input, or a suitable externally powered host adapter/injection arrangement. Verify that the actual adapter, connector roles and Nano wiring provide the intended USB power/data path without competing 5 V sources. A charge-only cable will not work. There is no UART level shifter in the USB data path.
+The board has **one native USB interface**. PC serial/JTAG service and Nano USB host operation use the same port, so they cannot run simultaneously.
 
-Check the [Waveshare schematic](https://files.waveshare.com/wiki/ESP32-S3-Zero/ESP32-S3-Zero-Sch.pdf) and [classic Nano schematic](https://content.arduino.cc/assets/NanoV3.3_sch.pdf) against the installed boards. Perform initial hookup with propulsion power disconnected.
+For initial flashing and checks, leave the board in **PC service** mode and connect it to the computer. When ready to connect the Nano, choose **Device → Use Nano USB**, confirm, and move the data cable to the Nano using a suitable powered host arrangement. To return, choose **Use PC service USB**, then reconnect the computer. Wi-Fi and the LCD operate in either mode. BOOT/download mode remains available for recovery.
 
-## Features
+The ESP32 is the USB **host** and the Nano's USB-to-UART converter is its peripheral. Registered CH34x, CP210x, and FT23x converter IDs are supported by pinned Espressif VCP drivers. Unregistered clone IDs and generic native CDC devices may need a driver addition; the phone diagnostics show VID/PID when detected.
 
-- Live thrust, RPM, voltage, current, calculated electrical power, and throttle.
-- Selectable performance traces and time windows, with inspection tooltip and CSV export of browser history.
-- ESP32-side start/stop recording with names and test notes. Recording continues when the browser disconnects.
-- Persistent run library, completed-run plots, CSV download, metadata download, and explicit deletion.
-- Local opening of original six-column SD logs or gateway CSV files on the phone/browser. Files stay on that device.
-- USB status, VID/PID, stale-data indication, raw serial monitor, malformed-line and queue-drop counters.
-- Nano calibration UI: tare, known-load calibration, pole count, load-cell factor, shunt resistance, divider ratio, and explicit EEPROM save. These controls are enabled only after updated Nano firmware advertises the corresponding commands and acknowledges them.
-- Persistent Wi-Fi, IP, serial-speed and unit-label settings.
+**A cable alone generally cannot power this board from an already-powered classic Nano.** The classic Nano's USB diode blocks power flowing back to its USB socket. On the LCD board, the `5V` header is raw USB VBUS and `VCC` is after a diode; its battery supply does not establish a regulated 5 V USB host output. Use a suitable regulated host-power feed or powered adapter, check the actual boards and cable roles, and avoid competing 5 V sources. USB data needs no UART level shifter. Perform initial hookup with propulsion power disconnected.
 
-**Available with the current Nano firmware:** monitoring and ESP32 recording from its debug stream. Enable `DEBUG` in the chosen Nano sketch. Version 4 uses 9600 baud; the Schubler variant uses 115200. Match that rate in the gateway settings.
+See [BOARD_NOTES.md](BOARD_NOTES.md), the [LCD board schematic](https://files.waveshare.com/wiki/ESP32-S3-Touch-LCD-2.8B/ESP32-S3-Touch-LCD-2.8B_schematic_diagram.pdf), and the [classic Nano schematic](https://content.arduino.cc/assets/NanoV3.3_sch.pdf).
 
-**Requires the second-step Nano update:** calibration and configuration commands. The complete wire contract is in [PROTOCOL.md](PROTOCOL.md). This ESP32 implementation does not modify the Nano automatically or expose files already on the Nano's SD card.
+## Nano compatibility
 
-The gateway does not control propulsion. Its thrust unit setting labels measurements; it does not perform a kgf/newton/pound-force conversion.
+Enable `DEBUG` in the installed Nano sketch. Version 4 uses **9600 baud**; the Schubler variant uses **115200**. Match the gateway setting to that firmware. The gateway accepts the existing labeled debug stream, original six-number CSV, and the proposed JSON v1 protocol.
+
+With the old firmware, monitoring and gateway recording work; calibration controls stay disabled. The ESP32 cannot enable a compile-time Nano debug flag remotely. It does not update the Nano automatically or read files from the Nano's own SD card. The missing receiver's effect on the old measurement loop remains part of the Nano restoration work.
+
+## microSD logging
+
+Use a FAT-formatted card, preferably FAT32. GPIO1/2 are shared between LCD serial initialization and SDMMC: the LCD SPI device is released before the one-bit SD bus is mounted. The card needs no connection to the Nano's SD socket.
+
+Ordinary startup and **Remount microSD** never format a card. A failed mount is reported and the dashboard remains usable. The deliberate PC service command `prepare-fresh-sd` permits formatting **only if the FAT mount fails**; use it only for a card whose contents may be erased.
+
+Each run produces `/thrust/run-....csv` and a matching `.json` metadata file. Files can be read directly from the card or downloaded over Wi-Fi. Stop recording and finish downloads before removing or remounting the card. The library supports 64 runs, requires 1 MiB free to start, and stops near 512 KiB free. Runs are never overwritten to make room.
+
+All incoming samples, including idle samples, are recorded while a run is active. CSV is flushed every ten samples. Power loss can lose recent unflushed data; the next boot marks unfinished metadata as `interrupted`, without resuming the run. Its sample count may be incomplete; the CSV is the primary recovered record. USB loss creates a timestamp gap and recording continues if measurements return. A storage write/flush failure stops recording.
+
+The ESP32 holds 600 recent samples in RAM; each browser retains up to 6000. **Export trace** exports browser history, whereas recording writes received samples to the card independently of the browser.
 
 ## Build and flash
 
-This is an **ESP-IDF C++ project**, rather than an Arduino IDE sketch. It uses the official USB host/VCP driver components with exact dependency pins. The supplied PowerShell helper installs PlatformIO into a dedicated Python virtual environment and builds outside paths containing spaces.
-
-Requirements: Python 3, Git, internet access for the first dependency installation, and PowerShell. From this directory:
+This is an **ESP-IDF C++ project**. Use the supplied helper or PlatformIO, rather than uploading it as an Arduino sketch. Requirements: Python 3, Git, PowerShell, and internet for the first dependency installation.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\build.ps1
 ```
 
-The result is `artifacts/thrust-tester-esp32-s3-zero.zip`, containing application, bootloader, partition table, SHA-256 checksums, a flash script, and hookup instructions.
+The helper installs PlatformIO in a dedicated Python environment, stages sources outside space-containing paths, and produces **`artifacts/thrust-tester-esp32-s3-lcd28b.zip`**. The ZIP contains firmware, bootloader, partition table, checksums, flash script, and instructions. It is for the **2.8B with 16 MB flash**, not the S3 Zero or non-B display.
 
-1. Disconnect the Nano and external host-power feed from the ESP32 before connecting it to the computer; avoid joining independent 5 V sources.
-2. Connect the ESP32 to the computer with a USB data cable.
-3. Hold **BOOT**, tap **RESET**, then release **BOOT** to enter USB download mode.
-4. Find the ESP32 COM port and run:
+Disconnect the Nano and external host-power feed, connect the board to the computer with a data cable, then run:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\flash.ps1 -Port COM7
+powershell -ExecutionPolicy Bypass -File .\flash.ps1 -Port COM3
 ```
 
-Replace `COM7` with the actual port. The helper can also be run from the extracted firmware ZIP; no build is required when using that package. It installs esptool in a dedicated environment if needed.
+Use the actual COM port. If required, hold **BOOT**, tap **RESET**, then release **BOOT** to enter download mode. The flash helper also works from an extracted ZIP and installs its own esptool environment when needed.
 
-After application startup, the native USB port changes to host mode. It no longer appears as a computer serial monitor. Re-enter BOOT/download mode for the next USB flash. Firmware diagnostics use UART0 internally; the web diagnostics panel shows runtime USB/stream information.
+Flash addresses: bootloader `0x0`, partition table `0x8000`, application `0x10000`. The 16 MB layout has a 6 MiB application slot and NVS/PHY partitions; recordings live on microSD. Normal flashing preserves NVS settings and the card. A full flash erase removes settings. The old Zero/SPIFFS layout is a different target and should not be used to update this board.
 
-Flashing writes bootloader at `0x0`, partitions at `0x8000`, and application at `0x10000`. It leaves NVS and recording storage alone. An explicit full flash erase removes settings and recordings. Keep this partition layout for updates that should preserve files.
+Pinned versions: PlatformIO Core 6.1.18, espressif32 6.12.0, ESP-IDF 5.5.0, Xtensa GCC 14.2.0, LVGL 8.3.11, CDC host 2.4.1, CH34x 2.2.1, CP210x 2.2.0, FTDI 2.1.1, VCP 1.0.0~6. `dependencies.lock` records resolved hashes.
 
-For an existing PlatformIO installation, `pio run` also works when the project path contains no spaces. Native ESP-IDF 5.5 builds can use the supplied CMake project, manifest, partitions and defaults.
+## Diagnostics and testing
 
-### Pinned environment
+In PC service mode, `tools/service_client.py` provides hardware checks over USB serial. It requires pyserial, included with the build tools:
 
-- PlatformIO Core `6.1.18` (helper installation).
-- Espressif32 platform `6.12.0`, ESP-IDF `5.5.0`, Xtensa GCC `14.2.0`.
-- CDC host `2.4.1`, CH34x `2.2.1`, CP210x `2.2.0`, FTDI `2.1.1`, VCP `1.0.0~6`.
-- `dependencies.lock` records the resolved component hashes.
+```powershell
+python .\tools\service_client.py --port COM3 status
+python .\tools\service_client.py --port COM3 sdtest
+python .\tools\service_client.py --port COM3 mount
+python .\tools\service_client.py --port COM3 --output screen.ppm screen
+python .\tools\service_client.py --port COM3 clock
+```
 
-## Recording behavior and limits
+The screen command copies the actual firmware framebuffer. `clock` sets the current session's wall clock from the computer; it does not configure the onboard RTC. LCD-started runs have an unknown wall-clock start (`0`) until a clock is set. Phone-started runs use the phone's timestamp; monotonic gateway time is always present.
 
-The 4 MB flash is partitioned into a 2 MB application slot, NVS/PHY data, and approximately **1.94 MiB of SPIFFS recording storage** before filesystem overhead. This is for short tests, not unlimited logging. Capacity depends on sample length and rate; watch the storage meter and export completed runs.
+For a deliberately disposable fresh card that cannot mount:
 
-The library permits at most 64 runs. A new run is refused above 70% filesystem usage, and an active recording stops near 75%, leaving space for metadata and filesystem maintenance. Files are not overwritten to make room. Any storage error stops recording and appears in the dashboard.
+```powershell
+python .\tools\service_client.py --port COM3 prepare-fresh-sd
+```
 
-Each run contains a CSV and metadata JSON. The CSV contains all received measurements while recording, including idle measurements. The browser's Export trace action exports only the history it currently holds; it is not a substitute for gateway recording. Downloads and saved-run viewing require stopping that run first.
-
-The gateway retains 600 recent samples in RAM for reconnecting browsers. Each browser retains up to 6000 live samples. Wi-Fi loss does not stop gateway recording. USB loss leaves a timestamp gap, and logging resumes when samples return. A power interruption does not automatically restart a recording; interrupted runs are identified at boot. CSV data is flushed every ten samples, so the latest unflushed data can be lost on power failure. Metadata sample count may be incomplete after interruption; the CSV is the primary recovered measurement record.
-
-The filesystem is formatted automatically only on its first initialization. A later mount failure is reported without silently erasing recordings. CSV transfer, SPI flash endurance, sustained recording rate, converter resets and power behavior still need evaluation on the actual hardware.
-
-## Verification and local preview
-
-The preview server emulates the HTTP API with clearly marked simulated measurements. It is not a hardware test, and simulation code is never embedded in the firmware.
+Firmware generates no simulated measurements. The separate preview server provides explicitly labeled demo data for UI development:
 
 ```powershell
 python .\tools\preview_server.py --port 8765
-```
-
-Open `http://127.0.0.1:8765`. Test modes are selected only on this preview server using `/api/demo?mode=legacy_debug`, `protocol_v1`, `stale`, or `disconnected`. They are not production firmware routes.
-
-Run browser-model tests:
-
-```powershell
 node --test .\tests\model.test.cjs
-```
-
-Native tests compile and exercise the production C++ parser and stream decoder, using the installed ESP-IDF cJSON source and stubs only for clock, recording, and opaque RTOS declarations. Install `ziglang==0.14.1` in a Python environment, then run:
-
-```powershell
 powershell -ExecutionPolicy Bypass -File .\tests\run-telemetry-tests.ps1 -Python python
 ```
 
-Before a physical test: confirm the actual ESP board and Nano converter, verify the USB power arrangement, flash the ESP, check Wi-Fi and incoming measurements, record a short bench run, disconnect/reconnect the phone, stop the run, and download its CSV and metadata. Then implement the Nano protocol and exercise each calibration command against known inputs with propulsion power disconnected.
+The native tests require `ziglang==0.14.1` and the installed ESP-IDF cJSON source; they exercise production parsing and stream framing. See [HARDWARE_TEST.md](HARDWARE_TEST.md) for what has actually been checked on the connected board. Nano enumeration, real measurements, calibration, and combined LCD/Wi-Fi/USB/SD throughput need a rig-connected systems test after the Nano update.
 
 ## Source map
 
 | File | Responsibility |
 | --- | --- |
-| `main/usb_bridge.cpp` | USB host lifecycle, converter registration, baud setup, RX/TX queues and reconnection. |
-| `main/telemetry.cpp` | Legacy/CSV/JSON decoding, capabilities, acknowledgements and sample JSON. |
-| `main/app_main.cpp` | Startup, Wi-Fi, NVS settings, SPIFFS recording and stream assembly. |
-| `main/web_server.cpp` | Embedded assets and local HTTP API. |
-| `web/` | Self-contained responsive dashboard and CSV/plot model. |
+| `main/app_main.cpp` | Startup, NVS settings, Wi-Fi, parser task and USB mode selection. |
+| `main/board_lcd28b.cpp`, `panel_init.inc` | Board wiring, ST7701 RGB panel, GT911 touch and backlight. |
+| `main/touch_ui.cpp` | LVGL touchscreen pages and recording/calibration controls. |
+| `main/storage.cpp` | SDMMC mount, read/write test, CSV/metadata library and recovery. |
+| `main/actions.cpp` | Shared Nano command validation and queueing. |
+| `main/usb_bridge.cpp` | Host/converter lifecycle, serial queues and reconnection. |
+| `main/telemetry.cpp` | Legacy/CSV/JSON parser, capabilities and acknowledgements. |
+| `main/web_server.cpp`, `web/` | Embedded dashboard and local HTTP API. |
+| `main/pc_service.cpp`, `tools/service_client.py` | Computer-connected hardware diagnostics. |
 | `PROTOCOL.md` | Nano update contract and HTTP API. |
-| `tools/preview_server.py` | Explicit simulated API for local interface verification. |
 
-The USB implementation follows Espressif's [CC0 VCP host example](https://github.com/espressif/esp-idf/tree/v5.5/examples/peripherals/usb/host/cdc/cdc_acm_vcp). Managed components retain their upstream licenses and are downloaded during build. This addition does not assign a blanket license to the original project archive.
+The USB implementation follows Espressif's [CC0 VCP host example](https://github.com/espressif/esp-idf/tree/v5.5/examples/peripherals/usb/host/cdc/cdc_acm_vcp). Managed components retain upstream licenses. Board configuration provenance is recorded in [BOARD_NOTES.md](BOARD_NOTES.md). This addition does not assign a blanket license to the original project archive.

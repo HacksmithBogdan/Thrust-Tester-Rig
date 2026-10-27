@@ -1,6 +1,6 @@
 # Nano ↔ ESP32 USB protocol, version 1
 
-The ESP32 is the USB host. The Nano remains the measurement controller, accessed through its existing USB-to-UART converter. No Nano changes are included in this implementation; this document is the contract for the second step.
+In Nano USB mode the ESP32 is the USB host. Fresh installations start in PC service mode; select Nano USB on the Device page before connecting the Nano. The Nano remains the measurement controller, accessed through its existing USB-to-UART converter. No Nano changes are included in this implementation; this document is the contract for the second step.
 
 ## Transport
 
@@ -114,13 +114,15 @@ There are no motor, engine, ESC, or emergency-stop commands in this protocol.
 
 ## Gateway recording format
 
+Recordings are stored on the LCD board’s microSD card under `/thrust/`, each with a CSV and JSON file. Startup and normal remount do not format the card.
+
 CSV columns:
 
 ```csv
 gateway_time_s,nano_time_s,thrust,throttle_percent,voltage_V,current_A,rpm,power_W
 ```
 
-Gateway time is monotonic ESP32 uptime; Nano time can restart independently. Empty CSV cells represent unavailable channels. Metadata JSON stores the run name, notes, selected thrust unit, source format, phone-supplied wall-clock start time, final status, sample count, and available Nano configuration. The phone's clock provides a label and is not a measurement timebase.
+Gateway time is monotonic ESP32 uptime; Nano time can restart independently. Empty CSV cells represent unavailable channels. Metadata JSON stores the run name, notes, selected thrust unit, source format, wall-clock start time (phone-supplied, or the LCD board’s session clock when available; otherwise zero), final status, sample count, and available Nano configuration. The phone's clock provides a label and is not a measurement timebase.
 
 Gateway recording is explicit start/stop and records all received samples, including idle samples. It does not inherit the Nano SD logger's activity threshold. Logging continues across phone disconnects and USB reconnections; gaps are visible through gateway timestamps. A power interruption ends the run and marks its metadata `interrupted` on the next boot; up to the most recent flush interval may be lost. Data is flushed every ten samples.
 
@@ -130,7 +132,7 @@ The dashboard uses these same-origin routes on port 80:
 
 | Route | Function |
 | --- | --- |
-| `GET /api/status` | USB/stream health, latest sample, public settings, recording/storage state, capabilities, configuration and command result. No Wi-Fi password is returned. |
+| `GET /api/status` | USB/stream health, latest sample, public settings, recording/storage state, capabilities, configuration and command result. Includes LCD/touch readiness, touch count and microSD health. No Wi-Fi password is returned. |
 | `GET /api/samples?after=N` | Up to 64 samples after gateway sequence N, `next_seq`, and RAM-history gap flag. |
 | `GET /api/console?after=N` | Recent raw serial lines after console sequence N. |
 | `GET /api/runs` | Up to 64 run metadata records, including CSV size. |
@@ -138,6 +140,6 @@ The dashboard uses these same-origin routes on port 80:
 | `POST /api/record` | `{"action":"start","name":"Test","note":"...","epoch_ms":123}` or `{"action":"stop"}`. |
 | `POST /api/delete` | `{"id":"run-..."}`; active runs cannot be deleted. |
 | `POST /api/command` | `{"command":"tare","args":{}}`; capability-gated, returns request ID with HTTP 202. |
-| `POST /api/settings` | SSID, optional replacement password, IP, baud and unit; saves then restarts. |
+| `POST /api/settings` | SSID, optional replacement password, IP, baud, unit, and Boolean `usb_host` (`true` for Nano host, `false` for PC service); saves then restarts. |
 
 Errors return non-2xx HTTP status and `{"error":"..."}`. Downloads require the run to be stopped. The network is a standalone WPA2 access point; anyone with its Wi-Fi password can use the dashboard and commands. There is no separate web login or internet dependency. No access to old Nano SD files is implemented in this version.

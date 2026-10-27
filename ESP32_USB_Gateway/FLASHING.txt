@@ -1,6 +1,7 @@
-THRUST TESTER / ESP32-S3 ZERO USB GATEWAY
+THRUST TESTER / ESP32-S3 TOUCH LCD 2.8B USB GATEWAY
 
-Target: Waveshare ESP32-S3 Zero, 4 MB flash. ESP-IDF firmware; not an Arduino .ino.
+Target: Waveshare ESP32-S3 Touch LCD 2.8B, 16 MB flash, 8 MB octal PSRAM.
+ESP-IDF firmware; not an Arduino .ino. Do not flash this package to an S3 Zero.
 
 1. Disconnect the Nano and the external host-power feed from the ESP32 before
    connecting it to the computer. Avoid tying two independent 5 V supplies together.
@@ -10,12 +11,15 @@ Target: Waveshare ESP32-S3 Zero, 4 MB flash. ESP-IDF firmware; not an Arduino .i
      powershell -ExecutionPolicy Bypass -File .\flash.ps1 -Port COM7
    Replace COM7 with the actual port. Python 3 is needed; the script installs
    esptool in a dedicated tools environment if necessary.
-5. After boot, the USB port becomes a host and disappears as a computer COM port.
-6. Power the ESP32 independently through a suitable regulated 5 V VBUS feed or
+5. Fresh installations start in PC service mode. The screen and Wi-Fi work while
+   the USB port remains a computer COM port. The screen's Device tab selects USB
+   mode and Nano baud rate, with a restart to apply changes.
+6. When moving to the Nano, select Device -> Use Nano USB. After restart, the USB
+   COM port disappears. Power the ESP32 through a suitable regulated 5 V VBUS feed or
    correctly powered USB host adapter, then connect its USB data port to the Nano.
    A classic Nano normally DOES NOT feed 5 V back out of its USB connector.
    Check the actual board/cable arrangement; avoid connecting competing 5 V sources.
-   The Zero Type-C connector has sink CC resistors, not a host power controller.
+   The LCD board is not a complete switched USB host power port.
 7. Join Wi-Fi: ThrustTester
    Password: ThrustRig-2026
    Open: http://192.168.4.1
@@ -27,14 +31,16 @@ Monitoring, plots, ESP32 recordings, saved-run viewing, CSV export and local CSV
 import work with the original debug stream. USB calibration requires the later
 Nano protocol update and remains disabled until that Nano advertises support.
 
-Runs are stored in ESP32 flash, not on the Nano's SD card. They continue when the
-phone disconnects. Stop a run before viewing/downloading it. Export CSV and
+Runs are stored in /thrust/ on the LCD board's microSD, separate from the Nano's
+SD card. They continue when the phone disconnects. Stop a run before viewing/downloading it. Export CSV and
 metadata before deleting a run. The finite storage meter is shown in the app;
-recording stops near 75% filesystem usage. No old Nano SD files are exposed yet.
+recording stops before exhausting the card. No old Nano SD files are exposed yet.
+Normal boot and remount do not format cards. PC service PREPARE_FRESH_SD permits
+formatting only when the card fails to mount; use it only for a disposable card.
 
 This flash command writes bootloader, partition table and application only. It
-does not erase the settings or recording partitions. Do not use erase_flash
-unless you intend to remove every saved run and all settings.
+does not erase NVS settings. MicroSD recordings are unaffected by firmware flashing.
+Do not use erase_flash unless you intend to remove all ESP32 settings.
 
-Firmware is software-validated; USB enumeration, board power, and measurements
-must still be verified on the actual rig. Keep propulsion power off for hookup.
+The Nano USB link and measurements must still be verified on the assembled rig.
+Keep propulsion power off for initial hookup and calibration.

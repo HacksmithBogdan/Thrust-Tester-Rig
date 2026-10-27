@@ -24,3 +24,6 @@ ESP32_USB_Gateway/sdkconfig.esp32-s3-zero
 ESP32_USB_Gateway/sdkconfig.esp32-s3-zero.old
 ESP32_USB_Gateway/artifacts/
 **/__pycache__/
+
+ESP32_USB_Gateway/sdkconfig.esp32-s3-lcd28b
+ESP32_USB_Gateway/sdkconfig.esp32-s3-lcd28b.old

@@ -57,7 +57,7 @@ static std::string query(httpd_req_t* req, const char* key) {
 static esp_err_t status_handler(httpd_req_t* req) {
     std::unique_lock<std::mutex> lock(state.mutex);
     auto* json = cJSON_CreateObject();
-    cJSON_AddStringToObject(json, "firmware", "1.0.0");
+    cJSON_AddStringToObject(json, "firmware", "1.1.0-lcd28b");
     cJSON_AddNumberToObject(json, "uptime_ms", now_ms());
     cJSON_AddStringToObject(json, "mode", state.mode.c_str());
     cJSON_AddBoolToObject(json, "usb_connected", state.usb_connected);
@@ -79,8 +79,15 @@ static esp_err_t status_handler(httpd_req_t* req) {
     cJSON_AddStringToObject(settings, "ip", state.settings.ip.c_str());
     cJSON_AddStringToObject(settings, "unit", state.settings.unit.c_str());
     cJSON_AddNumberToObject(settings, "baud", state.settings.baud);
+    cJSON_AddBoolToObject(settings,"usb_host",state.settings.usb_host);
+    cJSON_AddBoolToObject(json,"display_ready",state.display_ready);
+    cJSON_AddBoolToObject(json,"touch_ready",state.touch_ready);
+    cJSON_AddNumberToObject(json,"touch_events",state.touch_events);
     auto* storage = cJSON_AddObjectToObject(json, "storage");
     cJSON_AddBoolToObject(storage, "ready", state.storage_ready);
+    cJSON_AddStringToObject(storage,"kind","microSD");
+    cJSON_AddStringToObject(storage,"message",state.storage_status.c_str());
+    cJSON_AddStringToObject(storage,"card",state.card_name.c_str());
     cJSON_AddNumberToObject(storage, "total", state.storage_total);
     cJSON_AddNumberToObject(storage, "used", state.storage_used);
     auto* recording = cJSON_AddObjectToObject(json, "recording");
@@ -156,11 +163,13 @@ static esp_err_t download_handler(httpd_req_t* req) {
     const auto id = query(req, "id");
     const bool metadata = query(req, "format") == "json";
     if (!valid_run_id(id)) return error(req, "Invalid run identifier.");
+    FILE* file=nullptr;
     {
         std::lock_guard<std::mutex> lock(state.mutex);
         if (state.recording_file && state.recording_id == id) return error(req, "Stop this run before opening or downloading it.", "409 Conflict");
+        file=std::fopen(run_path(id, metadata ? ".json" : ".csv").c_str(), "rb");
+        if(file)++state.active_downloads;
     }
-    FILE* file = std::fopen(run_path(id, metadata ? ".json" : ".csv").c_str(), "rb");
     if (!file) return error(req, "Run file not found.", "404 Not Found");
     const auto disposition = "attachment; filename=\"" + id + (metadata ? ".json\"" : ".csv\"");
     httpd_resp_set_type(req, metadata ? "application/json" : "text/csv; charset=utf-8");
@@ -173,6 +182,7 @@ static esp_err_t download_handler(httpd_req_t* req) {
         if ((result = httpd_resp_send_chunk(req, buffer, bytes)) != ESP_OK) break;
     }
     std::fclose(file);
+    {std::lock_guard<std::mutex> lock(state.mutex);--state.active_downloads;}
     if (result == ESP_OK) result = httpd_resp_send_chunk(req, nullptr, 0);
     return result;
 }
@@ -182,6 +192,7 @@ static esp_err_t delete_handler(httpd_req_t* req) {
     cJSON_Delete(json);
     if (!valid_run_id(id)) return error(req, "Invalid run identifier.");
     std::lock_guard<std::mutex> lock(state.mutex);
+    if(state.active_downloads)return error(req,"Wait for downloads to finish before deleting runs.","409 Conflict");
     if (state.recording_file && state.recording_id == id) return error(req, "Stop this run before deleting it.", "409 Conflict");
     if (std::remove(run_path(id, ".csv").c_str()) != 0) return error(req, "Run file could not be deleted.", "404 Not Found");
     std::remove(run_path(id, ".json").c_str());
@@ -192,50 +203,13 @@ static esp_err_t delete_handler(httpd_req_t* req) {
 static esp_err_t command_handler(httpd_req_t* req) {
     auto* json = body(req);
     if (!json) return error(req, "Expected JSON request.");
-    const auto command = string_field(json, "command");
-    const char* allowed[] = {"tare", "calibrate", "set_config", "get_config", "save_config"};
-    if (std::find(std::begin(allowed), std::end(allowed), command) == std::end(allowed)) { cJSON_Delete(json); return error(req, "Unknown command."); }
-    std::lock_guard<std::mutex> lock(state.mutex);
-    if (!has_capability_locked(command)) { cJSON_Delete(json); return error(req, "This Nano firmware has not advertised support for that command.", "409 Conflict"); }
-    if (state.recording_file) { cJSON_Delete(json); return error(req, "Stop recording before changing calibration.", "409 Conflict"); }
-    if (state.pending_request) { cJSON_Delete(json); return error(req, "Wait for the current command to finish.", "409 Conflict"); }
-    auto* args = cJSON_GetObjectItemCaseSensitive(json, "args");
-    if (!cJSON_IsObject(args)) { cJSON_Delete(json); return error(req, "Command arguments must be an object."); }
-    if (command == "calibrate") {
-        const double load = number_field(args, "known_load");
-        if (!std::isfinite(load) || load <= 0 || load > 100000) { cJSON_Delete(json); return error(req, "Enter a positive known load."); }
-    }
-    if (command == "set_config") {
-        const double poles = number_field(args, "poles");
-        const double factor = number_field(args, "calibration_factor");
-        const double shunt = number_field(args, "shunt_ohms");
-        const double divider = number_field(args, "divider_ratio");
-        if (!std::isfinite(poles) || poles < 1 || poles > 220 || std::floor(poles) != poles || !std::isfinite(factor) || factor == 0 || std::abs(factor) > 10000000 || !std::isfinite(shunt) || shunt <= 0 || shunt > 1 || !std::isfinite(divider) || divider < 1 || divider > 1000) {
-            cJSON_Delete(json); return error(req, "Check pole count, calibration factor, shunt resistance, and divider ratio.");
-        }
-    }
-    const uint32_t request = state.next_request++;
-    cJSON* packet = cJSON_CreateObject();
-    cJSON_AddStringToObject(packet, "type", "command");
-    cJSON_AddNumberToObject(packet, "protocol", 1);
-    cJSON_AddNumberToObject(packet, "request_id", request);
-    cJSON_AddStringToObject(packet, "command", command.c_str());
-    cJSON_AddItemToObject(packet, "args", cJSON_Duplicate(args, true));
-    const auto wire = json_string(packet) + "\n";
-    cJSON_Delete(packet);
+    uint32_t request=0;
+    std::string reason;
+    const bool accepted=submit_command(string_field(json,"command"), cJSON_GetObjectItemCaseSensitive(json,"args"), request, reason);
     cJSON_Delete(json);
-    if (wire.size() >= sizeof(TxMessage::text)) return error(req, "Command is too long.");
-    TxMessage message {};
-    std::memcpy(message.text, wire.data(), wire.size());
-    if (xQueueSend(tx_queue, &message, 0) != pdTRUE) return error(req, "USB command queue is full.", "503 Service Unavailable");
-    state.pending_request = request;
-    state.pending_since = now_ms();
-    state.pending_command = command;
-    state.command_state = "pending";
-    state.command_message = "Waiting for Nano acknowledgement…";
-    console_locked("[TX] " + wire.substr(0, wire.size() - 1));
-    auto* reply = cJSON_CreateObject(); cJSON_AddNumberToObject(reply, "request_id", request);
-    return send_json(req, reply, "202 Accepted");
+    if (!accepted) return error(req, reason.c_str(), "409 Conflict");
+    auto* reply=cJSON_CreateObject(); cJSON_AddNumberToObject(reply,"request_id",request);
+    return send_json(req,reply,"202 Accepted");
 }
 static void restart_task(void*) { vTaskDelay(pdMS_TO_TICKS(2500)); esp_restart(); }
 static esp_err_t settings_handler(httpd_req_t* req) {
@@ -248,6 +222,8 @@ static esp_err_t settings_handler(httpd_req_t* req) {
     if (!password.empty()) settings.password = password;
     settings.ip = string_field(json, "ip", settings.ip);
     settings.unit = string_field(json, "unit", settings.unit);
+    const cJSON* host=cJSON_GetObjectItemCaseSensitive(json,"usb_host");
+    if(cJSON_IsBool(host)) settings.usb_host=cJSON_IsTrue(host);
     const double baud = number_field(json, "baud", settings.baud);
     cJSON_Delete(json);
     const uint32_t rates[] = {9600, 19200, 38400, 57600, 115200, 230400};
@@ -256,7 +232,7 @@ static esp_err_t settings_handler(httpd_req_t* req) {
     unsigned a, b, c, d; char trailing;
     const bool valid_ip = std::sscanf(settings.ip.c_str(), "%u.%u.%u.%u%c", &a, &b, &c, &d, &trailing) == 4 && a == 192 && b == 168 && c <= 254 && d == 1;
     if (settings.ssid.empty() || settings.ssid.size() > 31 || settings.password.size() < 8 || settings.password.size() > 63 || !valid_ip || (settings.unit != "kgf" && settings.unit != "N" && settings.unit != "lbf")) return error(req, "Use an SSID of 1–31 bytes, password of 8–63 bytes, and IP 192.168.x.1 (x=0…254).");
-    if (state.recording_file || state.pending_request) return error(req, "Stop recording and wait for commands before restarting.", "409 Conflict");
+    if (state.recording_file || state.pending_request || state.active_downloads) return error(req, "Stop recording and finish downloads/commands before restarting.", "409 Conflict");
     if (!save_settings(settings)) return error(req, "Settings could not be saved.", "500 Internal Server Error");
     auto* reply = cJSON_CreateObject();
     cJSON_AddBoolToObject(reply, "ok", true);
