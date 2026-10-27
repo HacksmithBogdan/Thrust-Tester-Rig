@@ -14,7 +14,7 @@ The active restoration target is the **Waveshare ESP32-S3 Zero**, using USB to t
 - Embedded HTML/CSS/JavaScript and status/library/sample/console endpoints returned HTTP 200 over the board's Wi-Fi. The actual dashboard rendered correctly with no browser errors and disabled recording while disconnected.
 - Recording with no Nano and calibration without advertised capabilities both returned HTTP 409 with the expected reasons. No synthetic measurements or test recordings were created.
 
-The Nano was not connected for these checks. Actual converter enumeration, incoming measurements, real recording/downloads and calibration still require a rig-connected test. USB calibration additionally requires the separately planned Nano protocol update.
+The Nano was not connected for these checks. Actual converter enumeration, incoming measurements, real recording/downloads and calibration still require a rig-connected test. The matching [Nano firmware has now been built, flashed and tested directly over USB](../Nano_USB_Controller/HARDWARE_TEST.md), at 115200 baud; the gateway must be set to that rate for the paired test.
 
 ## Display-board cleanup
 

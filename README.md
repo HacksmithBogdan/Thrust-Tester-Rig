@@ -4,9 +4,13 @@ A large thrust test stand built by Hacksmith for testing and logging the perform
 
 This repository preserves the original Arduino sketches, sensor test programs, SolidWorks files, and bundled libraries so the rig can be understood, restored, and developed further. The firmware measures thrust, receiver throttle, supply voltage, current, and RPM; later versions write measurements to an SD card and relay selected values to a FrSky radio through a second Arduino.
 
-**Project status:** legacy project being brought back into service. The initial import preserves the firmware as found. The documentation below comes from a source review, not a new hardware test or a verified firmware build. Board models, wiring, calibration, and operating limits still need to be confirmed on the physical rig.
+**Project status:** legacy project being brought back into service. The original sketches and mechanical files are preserved. The ESP32-S3 Zero gateway and replacement measurement Nano firmware now build and have passed separate bench checks. Their paired USB link and reference calibration remain to be verified. The legacy documentation below is based on source review; it does not establish physical operating limits.
 
-**USB/Wi-Fi restoration interface:** [`ESP32_USB_Gateway/`](ESP32_USB_Gateway/) adds an ESP32-S3 Zero USB host, a local phone dashboard, and ESP32-side recording without changing the archived Arduino firmware. See its [setup guide](ESP32_USB_Gateway/README.md) and [Nano protocol contract](ESP32_USB_Gateway/PROTOCOL.md). The existing rig has since been reported to power up and produce debug serial readings; the ESP32 integration still needs a physical systems test.
+**Current restoration path:** [`ESP32_USB_Gateway/`](ESP32_USB_Gateway/) adds the ESP32-S3 Zero USB host, Wi-Fi phone dashboard, live plots, calibration controls and local recordings/downloads. [`Nano_USB_Controller/`](Nano_USB_Controller/) replaces the firmware on the **measurement Nano only**, retaining its soldered sensors and optional SD backup. Leave the separate FrSky telemetry Nano unchanged. Both use **115200 baud**; change the gateway's original 9600 setting after the Nano update.
+
+Join **ThrustTester** (initial password **ThrustRig-2026**) and open **http://192.168.4.1**. The Zero requires a regulated 5V feed for USB-host operation; follow the [power and hookup guide](ESP32_USB_Gateway/README.md#hardware-and-usb-power). The phone starts/stops runs on ESP32 flash and downloads CSV/metadata. The Nano independently records `RIGnnnnn.CSV` on its existing SD module when available. No SD file synchronization is implemented.
+
+Build/upload instructions and measured results: [gateway guide](ESP32_USB_Gateway/README.md), [gateway tests](ESP32_USB_Gateway/HARDWARE_TEST.md), [Nano guide](Nano_USB_Controller/README.md), [Nano tests](Nano_USB_Controller/HARDWARE_TEST.md), and [wire protocol](ESP32_USB_Gateway/PROTOCOL.md). The following sections document the historical rig and sketches; the linked restoration guides describe their replacement behavior.
 
 ## Contents
 
@@ -67,6 +71,8 @@ Original names and nested folders are retained, including the unusual `.ino.ino`
 
 | Path | Purpose |
 | --- | --- |
+| [`ESP32_USB_Gateway/`](ESP32_USB_Gateway/) | Active ESP32-S3 Zero USB host, offline phone dashboard and flash recording. |
+| [`Nano_USB_Controller/`](Nano_USB_Controller/) | Active ATmega328P measurement firmware: USB calibration/configuration, sensor acquisition and continuous SD backup. |
 | [`Thrust_Tester_Software/`](Thrust_Tester_Software/) | Original serial-output sketch. Polls the Hall sensor on D5; throttle calculation is disabled and reported as zero. |
 | [`Thrust_Tester_Software_2.0/`](Thrust_Tester_Software_2.0/) | Adds pin-change interrupt handling for RPM and receiver PWM; retains the earlier Hall polling code. |
 | [`aaThrust_Tester_Software_3/`](aaThrust_Tester_Software_3/) | Adds SD logging and contains telemetry experiments, a separate bridge sketch, and an `Unused Libraries` snapshot. Its RPM/PWM interrupt vector needs correction. |

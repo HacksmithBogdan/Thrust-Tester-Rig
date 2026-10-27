@@ -2,7 +2,7 @@
 
 This firmware adds a phone-accessible interface to the existing thrust rig without rewiring its measurement Nano. The ESP32-S3 hosts the Nano over USB, creates its own Wi-Fi network, serves all dashboard files locally, and records received measurements to its own flash.
 
-The original Arduino sketches remain unchanged. The ESP32 is an additional interface; the previous FrSky telemetry hardware does not need to be used.
+The original Arduino sketches remain unchanged. Use the matching [measurement Nano USB firmware](../Nano_USB_Controller/README.md) for phone calibration and configuration. The ESP32 is an additional interface; the previous FrSky telemetry hardware does not need to be used.
 
 ## First connection
 
@@ -13,7 +13,7 @@ The original Arduino sketches remain unchanged. The ESP32 is an additional inter
 | Web address | **http://192.168.4.1** |
 | Gateway / subnet | `192.168.4.1` / `255.255.255.0` |
 | DHCP | Enabled for phone/client addresses |
-| Nano serial | **9600 baud, 8-N-1** |
+| Nano serial | **9600 baud, 8-N-1** initially; set **115200** for the replacement Nano firmware |
 | Thrust display label | **kgf**; confirm against the actual load-cell calibration |
 
 Wi-Fi name, password, IP, baud, and unit label can be changed under **Device & connection**. Leaving the password field empty keeps it unchanged. Saving restarts the gateway. The AP password controls access to the dashboard; choose your own password before routine use.
@@ -43,9 +43,9 @@ Check the [Waveshare schematic](https://files.waveshare.com/wiki/ESP32-S3-Zero/E
 - Nano calibration UI: tare, known-load calibration, pole count, load-cell factor, shunt resistance, divider ratio, and explicit EEPROM save. These controls are enabled only after updated Nano firmware advertises the corresponding commands and acknowledges them.
 - Persistent Wi-Fi, IP, serial-speed and unit-label settings.
 
-**Available with the current Nano firmware:** monitoring and ESP32 recording from its debug stream. Enable `DEBUG` in the chosen Nano sketch. Version 4 uses 9600 baud; the Schubler variant uses 115200. Match that rate in the gateway settings.
+**With the replacement Nano firmware:** monitoring, recording, calibration and configuration use protocol v1 at **115200 baud**. Flash only the measurement Nano using [Nano_USB_Controller](../Nano_USB_Controller/README.md), then change the gateway's serial-speed setting to match. That firmware also writes continuous parallel backups to the Nano's existing SD module when available.
 
-**Requires the second-step Nano update:** calibration and configuration commands. The complete wire contract is in [PROTOCOL.md](PROTOCOL.md). This ESP32 implementation does not modify the Nano automatically or expose files already on the Nano's SD card.
+**With an archived Nano sketch:** monitoring/recording require its full debug stream. Enable `DEBUG` in the chosen sketch. Version 4 uses 9600 baud; the Schubler variant uses 115200. Calibration controls require the replacement firmware. The complete wire contract is in [PROTOCOL.md](PROTOCOL.md). The ESP32 does not update the Nano automatically or expose files already on its SD card.
 
 The gateway does not control propulsion. Its thrust unit setting labels measurements; it does not perform a kgf/newton/pound-force conversion.
 
@@ -89,11 +89,13 @@ For an existing PlatformIO installation, `pio run` also works when the project p
 
 ## Recording behavior and limits
 
-The 4 MB flash is partitioned into a 2 MB application slot, NVS/PHY data, and approximately **1.94 MiB of SPIFFS recording storage** before filesystem overhead. This is for short tests, not unlimited logging. Capacity depends on sample length and rate; watch the storage meter and export completed runs.
+The 4 MB flash is partitioned into a 2 MB application slot, NVS/PHY data, and approximately **1.94 MiB of SPIFFS recording storage** before filesystem overhead (**1.77 MiB usable** measured on the Zero). This is for short tests, not unlimited logging. Capacity depends on sample length and rate; watch the storage meter and export completed runs.
 
 The library permits at most 64 runs. A new run is refused above 70% filesystem usage, and an active recording stops near 75%, leaving space for metadata and filesystem maintenance. Files are not overwritten to make room. Any storage error stops recording and appears in the dashboard.
 
 Each run contains a CSV and metadata JSON. The CSV contains all received measurements while recording, including idle measurements. The browser's Export trace action exports only the history it currently holds; it is not a substitute for gateway recording. Downloads and saved-run viewing require stopping that run first.
+
+The Zero has no microSD slot. Its flash library and phone downloads are the primary recording workflow. The replacement Nano's SD logger is independent: one new six-column CSV per Nano boot, including idle samples. Match `nano_time_s` in the gateway CSV to `Time` in the SD CSV; the Nano's `sd_file` is retained in the run's configuration metadata when available. Missing Nano SD does not prevent ESP32 recording. Retrieve Nano SD files by removing the card; no USB file-copy or backup synchronization is implemented.
 
 The gateway retains 600 recent samples in RAM for reconnecting browsers. Each browser retains up to 6000 live samples. Wi-Fi loss does not stop gateway recording. USB loss leaves a timestamp gap, and logging resumes when samples return. A power interruption does not automatically restart a recording; interrupted runs are identified at boot. CSV data is flushed every ten samples, so the latest unflushed data can be lost on power failure. Metadata sample count may be incomplete after interruption; the CSV is the primary recovered measurement record.
 
@@ -123,7 +125,7 @@ Native tests compile and exercise the production C++ parser and stream decoder, 
 powershell -ExecutionPolicy Bypass -File .\tests\run-telemetry-tests.ps1 -Python python
 ```
 
-Before a physical test: confirm the actual ESP board and Nano converter, verify the USB power arrangement, flash the ESP, check Wi-Fi and incoming measurements, record a short bench run, disconnect/reconnect the phone, stop the run, and download its CSV and metadata. Then implement the Nano protocol and exercise each calibration command against known inputs with propulsion power disconnected.
+Before a physical test: confirm the actual ESP board and Nano converter, verify the USB power arrangement, flash both controllers using their separate guides, set the gateway to 115200, check incoming measurements, record a short bench run, disconnect/reconnect the phone, stop the run, and download its CSV and metadata. Exercise calibration against known inputs with propulsion power disconnected. Direct Nano USB tests and end-to-end USB-host tests are recorded separately; see the [Nano test record](../Nano_USB_Controller/HARDWARE_TEST.md).
 
 ## Source map
 
