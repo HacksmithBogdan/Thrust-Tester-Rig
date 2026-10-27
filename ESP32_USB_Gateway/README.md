@@ -16,7 +16,7 @@ The original Arduino sketches remain unchanged. Use the matching [measurement Na
 | Nano serial | **9600 baud, 8-N-1** initially; set **115200** for the replacement Nano firmware |
 | Thrust display label | **kgf**; confirm against the actual load-cell calibration |
 
-Wi-Fi name, password, IP, baud, and unit label can be changed under **Device & connection**. Leaving the password field empty keeps it unchanged. Saving restarts the gateway. The AP password controls access to the dashboard; choose your own password before routine use.
+Wi-Fi name, password, IP, baud, and unit label can be changed under **Device & connection → Nano serial speed**. On a phone, swipe the top navigation tabs left to reveal **Device & connection** at the right end. Leaving the password field empty keeps it unchanged. Saving restarts the gateway. The AP password controls access to the dashboard; choose your own password before routine use.
 
 Join this Wi-Fi network from the phone and keep the connection when it reports no internet. Open the HTTP address directly. No internet, cloud service, CDN, account, or installed phone app is needed. This implementation uses an explicit address rather than a captive portal.
 

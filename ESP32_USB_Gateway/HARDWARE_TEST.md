@@ -14,7 +14,19 @@ The active restoration target is the **Waveshare ESP32-S3 Zero**, using USB to t
 - Embedded HTML/CSS/JavaScript and status/library/sample/console endpoints returned HTTP 200 over the board's Wi-Fi. The actual dashboard rendered correctly with no browser errors and disabled recording while disconnected.
 - Recording with no Nano and calibration without advertised capabilities both returned HTTP 409 with the expected reasons. No synthetic measurements or test recordings were created.
 
-The Nano was not connected for these checks. Actual converter enumeration, incoming measurements, real recording/downloads and calibration still require a rig-connected test. The matching [Nano firmware has now been built, flashed and tested directly over USB](../Nano_USB_Controller/HARDWARE_TEST.md), at 115200 baud; the gateway must be set to that rate for the paired test.
+The Nano was not connected for the initial checks above. The matching [Nano firmware was then built, flashed and tested directly over USB](../Nano_USB_Controller/HARDWARE_TEST.md), at 115200 baud.
+
+## Paired USB link on 2026-10-27
+
+- The user connected the measurement Nano through its Mini-USB/data cable and USB-A-to-USB-C adapter to the Zero, powered separately from the rig's regulated 5V/GND supply.
+- Joined the Zero's identified access point (`3c:0f:02:e4:7f:09`) and read its actual API. The CH340 converter enumerated as `1A86:7523`, but the stored gateway setting was still 9600; raw data was unreadable and there were no samples.
+- Changed only the gateway baud setting to **115200** through `/api/settings`; confirmed the persisted setting after restart. No firmware reflash was needed.
+- Received 278 real Nano measurements before a temporary USB disconnect. After reconnection, protocol v1, all five calibration/configuration capabilities, current configuration and fresh samples were present. Malformed and queue-drop counters remained zero at the correct baud.
+- Configuration retained factor **100340**, poles **6**, shunt `0.000192` and divider `34.130001`. An acknowledged tare was observed through the phone/API, with EEPROM unchanged. A read-only configuration request was also sent over the USB bridge.
+- Nano SD still reported `sd_ok:false` and an empty filename. Nano uptime continued across the cable reconnection, so this was not yet a fresh SD initialization attempt after the card was reseated; a measurement-Nano reset was requested.
+- A `USB command too long; discarded` event from the Nano was observed after the baud change. Protocol discovery succeeded after reconnection; no calibration was inferred from that earlier error.
+
+This validates the tested converter/cable data path and live USB stream. Completed real recording/download, reference calibration, SD backup, sustained operation and power-interruption behavior remain to be checked. Temporary test Wi-Fi profiles and device captures are local only.
 
 ## Display-board cleanup
 

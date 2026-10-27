@@ -24,7 +24,7 @@ Pinned dependencies: PlatformIO AVR platform `5.1.0`, ArduinoJson `6.21.5`, Ardu
 1. Disconnect the Nano from the computer after upload. Leave the load cell unloaded: startup takes 20 fresh HX711 readings to establish zero.
 2. Supply the Zero through its 5V/VBUS and GND pins from a verified regulated 5V source. Keep its USB disconnected from the computer while that external feed is attached; the Zero ties USB VBUS to its supply input.
 3. Connect the Nano's Mini-USB to the Zero's USB-C using a data cable and suitable host adapter. The Nano's USB converter carries data; no 3.3V/5V UART level shifter is needed. Confirm the actual power arrangement against the [gateway hardware notes](../ESP32_USB_Gateway/README.md#hardware-and-usb-power).
-4. Join **ThrustTester**, password **ThrustRig-2026**, and open **http://192.168.4.1**. In **Device & connection**, change Nano serial speed to **115200** and save/restart. The gateway's original default is 9600.
+4. Join **ThrustTester**, password **ThrustRig-2026**, and open **http://192.168.4.1**. In **Device & connection**, change Nano serial speed to **115200** and save/restart. On a phone, swipe the top navigation tabs left to reveal that page. The gateway's original default is 9600.
 5. Expect protocol v1, live readings and enabled calibration controls once discovery finishes. Check each sensor with known inputs before propulsion tests.
 
 ## Existing wiring
@@ -64,6 +64,8 @@ Time,Thrust,Throttle,Vbat,Current,RPM
 ```
 
 `Time` is Nano uptime in seconds with millisecond precision, matching the gateway CSV's `nano_time_s`. Empty cells mean unavailable values. Configuration messages include `sd_ok` and `sd_file`; the gateway stores the configuration snapshot in run metadata so a phone run can be matched to its Nano backup. Nano files span all activity since boot; one Nano file can cover several phone runs. Both loggers flush every ten samples, so recent buffered data can be lost on power failure.
+
+SD initialization runs only at Nano startup. After reseating/replacing a card, reset or power-cycle the measurement Nano with the load cell unloaded; cable reconnection alone may leave it powered by the rig and will not retry initialization. Removing an active card is not a supported logging workflow.
 
 There is no SD file browsing, copying or automatic synchronization over USB in this version. Remove the Nano card to retrieve its backup files. The phone can open those six-column CSV files locally.
 
