@@ -2,6 +2,8 @@
 
 This firmware adds local touchscreen controls, a phone dashboard, and microSD recording to the existing thrust rig. It targets the **Waveshare ESP32-S3-Touch-LCD-2.8B** (480 × 640 RGB display, 16 MB flash, 8 MB PSRAM). The measurement Nano stays installed and connects through its USB socket.
 
+A different **ESP32-P4-WIFI6-Touch-LCD-4.3** board is being assessed for retaining its factory app launcher. See [P4_PORT_NOTES.md](P4_PORT_NOTES.md). The firmware package below remains S3-specific.
+
 The archived Arduino firmware is unchanged. Live monitoring works with its debug serial stream. USB calibration needs the planned Nano firmware update described in [PROTOCOL.md](PROTOCOL.md).
 
 ## First use
